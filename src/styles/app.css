@@ -547,6 +547,138 @@ td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
   margin-top: var(--sp-2);
 }
 
+/* Two-column dashboard layout */
+.dash-2col {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--sp-4);
+  margin-top: var(--sp-5);
+}
+.dash-2col > div { min-width: 0; }
+@media (max-width: 1100px) {
+  .dash-2col { grid-template-columns: 1fr; }
+}
+
+/* Drawdown warning card */
+.warn-card {
+  background: rgba(255, 193, 7, 0.08);
+  border-color: var(--warn);
+  margin-bottom: var(--sp-4);
+}
+
+/* SVG charts */
+.chart {
+  width: 100%;
+  height: auto;
+  display: block;
+}
+.chart-empty {
+  text-align: center;
+  color: var(--text-dim);
+  padding: var(--sp-5);
+}
+
+/* Calendar */
+.cal-toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: var(--sp-4);
+}
+.cal-nav {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+}
+.cal-nav h2 { font-size: var(--fs-lg); }
+.cal-nav .btn-sm {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: 1px solid var(--border-bold);
+  border-radius: var(--r-sm);
+  color: var(--text);
+  background: var(--bg-elevated);
+  text-decoration: none;
+}
+.cal-nav .btn-sm:hover { background: var(--bg-hover); text-decoration: none; }
+.cal-acct select { min-width: 180px; }
+
+.cal-weekdays {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: var(--sp-1);
+  margin-bottom: var(--sp-2);
+}
+.cal-weekdays > div {
+  text-align: center;
+  font-size: var(--fs-xs);
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: var(--sp-1);
+}
+.cal-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: var(--sp-1);
+}
+.cal-cell {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  padding: var(--sp-2);
+  min-height: 84px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  text-decoration: none;
+  color: var(--text);
+}
+.cal-cell.empty {
+  background: transparent;
+  border: none;
+}
+.cal-cell:not(.empty):hover {
+  background: var(--bg-hover);
+  text-decoration: none;
+}
+.cal-cell.profit {
+  background: rgba(34, 209, 119, 0.1);
+  border-color: rgba(34, 209, 119, 0.4);
+}
+.cal-cell.loss {
+  background: rgba(255, 77, 94, 0.08);
+  border-color: rgba(255, 77, 94, 0.4);
+}
+.cal-cell.be {
+  background: var(--bg-hover);
+}
+.cal-date {
+  font-size: var(--fs-xs);
+  color: var(--text-dim);
+}
+.cal-cell.profit .cal-date,
+.cal-cell.loss .cal-date,
+.cal-cell.be .cal-date {
+  color: var(--text);
+  font-weight: 600;
+}
+.cal-pnl {
+  font-size: var(--fs-md);
+  font-weight: 600;
+  font-family: var(--font-mono);
+  margin-top: auto;
+}
+.cal-cell.profit .cal-pnl { color: var(--profit); }
+.cal-cell.loss .cal-pnl { color: var(--loss); }
+.cal-trades {
+  font-size: 10px;
+  color: var(--text-dim);
+}
+
 /* Section dividers within a page */
 .section { margin-top: var(--sp-5); }
 .section-header {

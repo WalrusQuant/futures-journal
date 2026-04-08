@@ -3,6 +3,8 @@ import * as accounts from "./pages/accounts.js";
 import * as trades from "./pages/trades.js";
 import * as plans from "./pages/plans.js";
 import * as tags from "./pages/tags.js";
+import * as analytics from "./pages/analytics.js";
+import * as calendar from "./pages/calendar.js";
 import { makePlaceholder } from "./pages/placeholder.js";
 
 // Route table. Patterns may include :params, e.g. "/accounts/:id".
@@ -20,8 +22,8 @@ const routes = [
   { path: "/plans/new",         render: plans.renderForm },
   { path: "/plans/:id/edit",    render: plans.renderForm },
   { path: "/plans/:id",         render: plans.renderDetail },
-  { path: "/analytics",         render: makePlaceholder("Analytics", "Phase 5") },
-  { path: "/calendar",          render: makePlaceholder("Calendar",  "Phase 5") },
+  { path: "/analytics",         render: analytics.render },
+  { path: "/calendar",          render: calendar.render },
   { path: "/tags",              render: tags.render },
   { path: "/settings",          render: makePlaceholder("Settings",  "Phase 6") },
 ];
