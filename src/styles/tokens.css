@@ -1,0 +1,50 @@
+/* Design tokens — change these to retheme the entire app. */
+:root {
+  /* Surfaces */
+  --bg:           #0b0d10;
+  --bg-elevated:  #12151a;
+  --bg-panel:     #161a21;
+  --bg-hover:     #1d222b;
+  --border:       #232a35;
+  --border-bold:  #2f3947;
+
+  /* Text */
+  --text:         #e6e9ef;
+  --text-muted:   #8a93a3;
+  --text-dim:     #5b6573;
+
+  /* Accents */
+  --accent:       #ff8c00;       /* primary action / brand */
+  --accent-soft:  #ff8c0022;
+  --profit:       #22d177;
+  --loss:         #ff4d5e;
+  --info:         #4ea8ff;
+  --warn:         #ffc107;
+
+  /* Type */
+  --font-mono: "JetBrains Mono", "SF Mono", Menlo, Consolas, monospace;
+  --font-sans: -apple-system, BlinkMacSystemFont, "Inter", system-ui, sans-serif;
+
+  --fs-xs: 11px;
+  --fs-sm: 12px;
+  --fs-md: 13px;
+  --fs-lg: 15px;
+  --fs-xl: 18px;
+  --fs-2xl: 24px;
+
+  /* Spacing */
+  --sp-1: 4px;
+  --sp-2: 8px;
+  --sp-3: 12px;
+  --sp-4: 16px;
+  --sp-5: 24px;
+  --sp-6: 32px;
+
+  /* Radii */
+  --r-sm: 4px;
+  --r-md: 6px;
+  --r-lg: 10px;
+
+  /* Layout */
+  --sidebar-w: 220px;
+}
