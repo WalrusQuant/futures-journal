@@ -1,5 +1,10 @@
 import { listTrades } from "../lib/trades.js";
-import { listAccounts } from "../lib/accounts.js";
+import {
+  listAccounts,
+  ACCOUNT_CATEGORIES,
+  categoryDef,
+} from "../lib/accounts.js";
+import { REAL_CATEGORIES, SIM_CATEGORIES } from "../lib/ledger.js";
 import { listInstruments } from "../lib/instruments.js";
 import {
   summarizeTrades,
@@ -19,10 +24,47 @@ import { fmtMoney, fmtNumber, esc } from "../lib/format.js";
 
 export async function render() {
   const accounts = await listAccounts({ includeArchived: true });
+  const accountById = new Map(accounts.map((a) => [a.id, a]));
   const instruments = await listInstruments();
   const filters = readFilters();
   const trades = await listTrades(filters);
-  const closed = trades.filter((t) => t.status === "closed");
+
+  // Post-filters (applied in JS because we need account metadata that
+  // listTrades doesn't join on): view mode, category multi-select, and
+  // the include-archived toggle.
+  //
+  // Default behavior: archived accounts are hidden unless the user
+  // explicitly opts in or has selected a specific archived account by
+  // id. Failed combines shouldn't drag down active performance.
+  const applyPostFilters = (tradeSet) => {
+    let out = tradeSet;
+    if (!filters.includeArchived && !filters.account_id) {
+      out = out.filter(
+        (t) => accountById.get(t.account_id)?.is_active !== 0
+      );
+    }
+    if (filters.view === "real") {
+      out = out.filter((t) => {
+        const a = accountById.get(t.account_id);
+        return a && REAL_CATEGORIES.has(a.category);
+      });
+    } else if (filters.view === "sim") {
+      out = out.filter((t) => {
+        const a = accountById.get(t.account_id);
+        return a && SIM_CATEGORIES.has(a.category);
+      });
+    }
+    if (filters.categories && filters.categories.size > 0) {
+      out = out.filter((t) => {
+        const a = accountById.get(t.account_id);
+        return a && filters.categories.has(a.category);
+      });
+    }
+    return out;
+  };
+
+  const scopedTrades = applyPostFilters(trades);
+  const closed = scopedTrades.filter((t) => t.status === "closed");
 
   // The planned-vs-unplanned comparison exists specifically to see both
   // groups side by side, so it must not be affected by the planned filter
@@ -31,8 +73,8 @@ export async function render() {
   const filtersForSplit = { ...filters };
   delete filtersForSplit.planned;
   const splitTrades = filters.planned
-    ? await listTrades(filtersForSplit)
-    : trades;
+    ? applyPostFilters(await listTrades(filtersForSplit))
+    : scopedTrades;
   const plannedSplit = groupByPlannedStatus(
     splitTrades.filter((t) => t.status === "closed")
   );
@@ -73,6 +115,10 @@ export async function render() {
       </div>
     </div>
 
+    <div class="filter-bar" style="gap:var(--sp-2);margin-bottom:var(--sp-2)">
+      ${renderViewPills(filters.view)}
+    </div>
+
     <form class="filter-bar" id="filter-form">
       <div class="form-row">
         <label>Account</label>
@@ -91,12 +137,36 @@ export async function render() {
         </select>
       </div>
       <div class="form-row">
+        <label>Categories</label>
+        <div class="radio-group">
+          ${ACCOUNT_CATEGORIES.map(
+            (c) => `
+              <label>
+                <input type="checkbox" name="categories" value="${esc(c.value)}"${
+              filters.categories.has(c.value) ? " checked" : ""
+            }>
+                ${esc(c.label)}
+              </label>
+            `
+          ).join("")}
+        </div>
+      </div>
+      <div class="form-row">
         <label>From</label>
         <input type="date" name="from" value="${filters.fromDate || ""}">
       </div>
       <div class="form-row">
         <label>To</label>
         <input type="date" name="to" value="${filters.toDate || ""}">
+      </div>
+      <div class="form-row">
+        <label>
+          <input type="checkbox" name="archived" value="1"${
+            filters.includeArchived ? " checked" : ""
+          }>
+          Include archived accounts
+        </label>
+        <div class="help">Failed combines and closed accounts are hidden by default.</div>
       </div>
       <div style="display:flex;gap:var(--sp-2)">
         <button type="submit" class="primary btn-sm">Apply</button>
@@ -378,22 +448,58 @@ export async function render() {
         const v = fd.get(k);
         if (v) params.set(k, v);
       }
+      const cats = fd.getAll("categories");
+      if (cats.length) params.set("categories", cats.join(","));
+      if (fd.get("archived")) params.set("archived", "1");
+      // Preserve the current view pill selection (submitted separately
+      // via the pill click handler below).
+      if (filters.view && filters.view !== "all") params.set("view", filters.view);
       location.hash = "#/analytics" + (params.toString() ? "?" + params : "");
     });
     pageEl.querySelector("#btn-clear")?.addEventListener("click", () => {
       location.hash = "#/analytics";
+    });
+    pageEl.querySelectorAll("[data-view]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        // Clicking a view pill updates the view param and re-renders.
+        // Other filters are preserved via the existing URL params.
+        const hash = location.hash;
+        const qIdx = hash.indexOf("?");
+        const sp = new URLSearchParams(qIdx >= 0 ? hash.slice(qIdx + 1) : "");
+        const v = btn.dataset.view;
+        if (v === "all") sp.delete("view");
+        else sp.set("view", v);
+        location.hash =
+          "#/analytics" + (sp.toString() ? "?" + sp.toString() : "");
+      });
     });
   }
 
   return { html, mount };
 }
 
+function renderViewPills(current) {
+  const pills = [
+    { key: "all",  label: "All activity" },
+    { key: "real", label: "Real money" },
+    { key: "sim",  label: "Simulated" },
+  ];
+  return pills
+    .map(
+      (p) => `
+        <button class="pill${current === p.key ? " pill-active" : ""}"
+                data-view="${p.key}">${p.label}</button>
+      `
+    )
+    .join("");
+}
+
 function readFilters() {
   const hash = location.hash;
   const qIdx = hash.indexOf("?");
-  if (qIdx < 0) return {};
+  const out = { view: "all", categories: new Set(), includeArchived: false };
+  if (qIdx < 0) return out;
   const sp = new URLSearchParams(hash.slice(qIdx + 1));
-  const out = {};
   if (sp.get("account_id")) out.account_id = Number(sp.get("account_id"));
   if (sp.get("instrument")) out.instrument = sp.get("instrument");
   const planned = sp.get("planned");
@@ -406,6 +512,17 @@ function readFilters() {
     out.toDate = sp.get("to");
     out.to = new Date(sp.get("to") + "T23:59:59").toISOString();
   }
+  const view = sp.get("view");
+  if (view === "real" || view === "sim" || view === "all") out.view = view;
+  const cats = sp.get("categories");
+  if (cats) {
+    out.categories = new Set(
+      cats.split(",").filter((c) =>
+        ACCOUNT_CATEGORIES.some((def) => def.value === c)
+      )
+    );
+  }
+  if (sp.get("archived") === "1") out.includeArchived = true;
   return out;
 }
 

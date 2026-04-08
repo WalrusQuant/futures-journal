@@ -197,6 +197,30 @@ tbody tr.clickable { cursor: pointer; }
 
 form[data-account-type="funded"] [data-show-when="cash"] { display: none; }
 form[data-account-type="cash"]   [data-show-when="funded"] { display: none; }
+/* Broker selector: only visible on cash-category accounts (not bank, not funded). */
+form[data-account-type="funded"] [data-show-when="cash-broker"] { display: none; }
+form[data-account-category="bank"] [data-show-when="cash-broker"] { display: none; }
+
+/* Pill-style filter buttons used on the ledger and analytics pages. */
+.pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--bg-alt, var(--bg));
+  color: var(--text);
+  font-size: var(--fs-sm);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.pill:hover { border-color: var(--border-bold, var(--border)); }
+.pill-active {
+  background: var(--accent, #3b82f6);
+  color: #fff;
+  border-color: var(--accent, #3b82f6);
+}
 
 /* Modal */
 .modal-backdrop {

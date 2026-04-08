@@ -1,3 +1,101 @@
+# Phase 8 — Real money ledger & account categories
+
+Five sub-phases, ordered so each one ships independently and the app is in a working state after each commit:
+
+1. **Account categories + rule-engine compat** (this file, below) — adds `category` column, no behavior change to rules
+2. **Bank account + linked transfers** — new `bank` category, paired transfer entries, recompute handles them
+3. **Real-money ledger computation + Ledger page** — pure functions + new sidebar entry
+4. **Analytics page segmentation** — view-mode pill, category filter, include-archived toggle
+5. **Dashboard updates** — net-real headline stat, archived-filter respect
+
+---
+
+## Phase 8.1 — Account categories + rule-engine compat
+
+**Context:** Right now `accounts.type` is only `funded` or `cash`, which conflates combine, sim-funded, and live-funded into one bucket. Analytics and the coming real-money ledger need a finer distinction. This phase adds a `category` column (`combine` / `sim_funded` / `live_funded` / `cash`) without breaking the existing rule engine, which reads `type` and will continue to do so.
+
+The `bank` category is NOT introduced in this phase — it comes in 8.2 alongside transfers, because a bank account without transfers is useless.
+
+**Migration `008_account_category.sql`** (register in `src-tauri/src/lib.rs`)
+
+```sql
+-- Granular account category. `type` stays as funded|cash for the existing
+-- rule engine (risk.js, computeHeadroom, computeDrawdownFloor); `category`
+-- is additive and used by analytics + the upcoming ledger.
+--
+-- Existing rows: type='funded' defaults to 'sim_funded' (the most common
+-- active state — user will re-label combines and live-funded accounts via
+-- the edit form). type='cash' maps 1:1 to 'cash'.
+ALTER TABLE accounts ADD COLUMN category TEXT NOT NULL DEFAULT 'sim_funded'
+  CHECK (category IN ('combine','sim_funded','live_funded','cash'));
+UPDATE accounts SET category = 'cash' WHERE type = 'cash';
+UPDATE accounts SET category = 'sim_funded' WHERE type = 'funded';
+```
+
+Note: `bank` is intentionally omitted from the CHECK until Phase 8.2. When we add it, it'll be a second `ALTER TABLE` rebuild OR we pre-include it here. Pre-including keeps us from a table rebuild later — I'll include `bank` in the CHECK now even though nothing creates bank accounts in this phase.
+
+Amended CHECK: `category IN ('combine','sim_funded','live_funded','cash','bank')`.
+
+**`src/lib/accounts.js`**
+
+- Add `ACCOUNT_CATEGORIES` const (ordered for UI display):
+  ```js
+  export const ACCOUNT_CATEGORIES = [
+    { value: "combine",     label: "Combine / Evaluation", type: "funded", desc: "Simulated trades, pay monthly sub. Failing archives it." },
+    { value: "sim_funded",  label: "Sim funded",           type: "funded", desc: "Simulated trades, real payouts. Rules still enforced." },
+    { value: "live_funded", label: "Live funded",          type: "funded", desc: "Real fills with firm capital. P&L only hits real ledger on withdrawal." },
+    { value: "cash",        label: "Cash brokerage",       type: "cash",   desc: "Your own money at a real broker. No prop-firm rules." },
+    // { value: "bank", ... } — reserved for Phase 8.2
+  ];
+  ```
+- `createAccount`: accept `data.category`, derive `type` from the category's mapping in `ACCOUNT_CATEGORIES` (so the form only needs to set `category` and we guarantee they stay in sync). Insert both columns.
+- `updateAccount`: whitelist `category`. When category changes, also update `type` derived from the category. Keep the rule-engine fields untouched.
+- Helper `categoryDef(value)` → returns the ACCOUNT_CATEGORIES row or null.
+- No changes to `computeDrawdownFloor` / `computeHeadroom` / `loadAccountRiskContext` — they all read `type`, which stays correct.
+
+**`src/pages/accounts.js`**
+
+- Form: replace the funded/cash radio pair with a `<select>` driven by `ACCOUNT_CATEGORIES`. Help text updates live from the category's `desc`, same pattern as the existing drawdown-mode help.
+- Form `data-show-when="funded"` / `data-show-when="cash"` sections: change to key off category. Rules section (drawdown, DLL, etc.) shows when `categoryDef(category).type === 'funded'`. Cash section shows when `type === 'cash'`. Implementation: set `form.dataset.accountType = categoryDef(category).type` whenever the category select changes.
+- Form submit: send `data.category` (not `data.type`); `createAccount`/`updateAccount` derive type. Cash accounts still null out the rule fields same as today.
+- Initial state for new accounts: `category: "sim_funded"`.
+- Detail view: add a "Category" row at the top of the Rules card showing the human-readable label.
+- List view (`rowHtml`): category badge replaces or augments the existing `type` badge. For phase 1, keep it simple — show the category label in the subtitle row.
+
+**`src/pages/dashboard.js`**
+
+- No functional changes in this phase. Today cards still render for every active account regardless of category (per the `feedback_safety_visibility` memory — default to inclusion).
+
+**Files to modify**
+
+- `src-tauri/migrations/008_account_category.sql` (new)
+- `src-tauri/src/lib.rs` (register migration 8)
+- `src/lib/accounts.js` (ACCOUNT_CATEGORIES const, category in create/update, categoryDef helper)
+- `src/pages/accounts.js` (form dropdown, live help, detail row, list badge)
+
+**Verification**
+
+1. `npm run build` — zero errors
+2. `cargo check` — zero errors
+3. Quit + relaunch `npm run tauri dev` so migration 008 runs
+4. Manual: open any existing funded account → should show "Sim funded" as the category. Edit and change to "Combine" → save → reload page → still "Combine".
+5. Manual: create a new account with each of the four categories. Confirm:
+   - combine/sim_funded/live_funded: rules section shows, cash section hidden
+   - cash: cash section shows, rules section hidden
+6. Manual: confirm the existing risk engine still blocks trades correctly on a sim_funded account (re-test the drawdown blocker we built in phase 7).
+7. Inspect DB: `sqlite3 <path-to-futures-journal.db> "SELECT name, type, category FROM accounts;"` — every row has a non-null category, type matches category's mapping.
+
+**Commit point:** "Phase 8.1: account categories (combine / sim_funded / live_funded / cash)"
+
+**Out of scope for 8.1**
+
+- Bank account type (Phase 8.2)
+- Transfers (Phase 8.2)
+- Any analytics or ledger changes (Phase 8.3–8.5)
+- Renaming or dropping the `type` column — kept for backward compat with the rule engine
+
+---
+
 # Phase 7 — Review, Guardrails, Depth, Safety
 
 Five features, ordered for safety and dependency:

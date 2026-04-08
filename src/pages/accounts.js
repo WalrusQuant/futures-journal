@@ -7,12 +7,19 @@ import {
   unarchiveAccount,
   listTransactions,
   addTransaction,
+  createTransfer,
   deleteTransaction,
   computeHeadroom,
+  loadAccountRiskContext,
+  DRAWDOWN_MODES,
+  ACCOUNT_CATEGORIES,
+  categoryDef,
   PROP_FIRMS,
   BROKERS,
   TX_TYPES,
+  MANUAL_TX_TYPES,
 } from "../lib/accounts.js";
+import { consistencyStatus } from "../lib/analytics.js";
 import { fmtMoney, fmtDate, fmtDateTime, esc } from "../lib/format.js";
 import { openModal, closeModal, confirmDialog } from "../components/modal.js";
 import { refreshPage } from "../main.js";
@@ -89,13 +96,15 @@ export async function renderList() {
 function rowHtml(a) {
   const pnl = a.current_balance - a.account_size;
   const pnlClass = pnl > 0 ? "profit" : pnl < 0 ? "loss" : "muted";
+  const catDef = categoryDef(a.category);
+  const catLabel = catDef?.label || a.type;
   const subtitle = a.type === "funded" ? a.prop_firm || "—" : a.broker || "—";
   return `
     <tr class="clickable" data-id="${a.id}">
       <td><strong>${esc(a.name)}</strong></td>
       <td><span class="badge ${a.type}${
     a.is_active ? "" : " archived"
-  }">${a.type}</span></td>
+  }">${esc(catLabel)}</span></td>
       <td class="muted">${esc(subtitle)}</td>
       <td style="text-align:right">${fmtMoney(a.account_size)}</td>
       <td style="text-align:right"><strong>${fmtMoney(
@@ -126,7 +135,24 @@ export async function renderDetail({ id }) {
   const txs = await listTransactions(id);
   const pnl = account.current_balance - account.account_size;
   const pnlClass = pnl > 0 ? "profit" : pnl < 0 ? "loss" : "";
-  const headroom = computeHeadroom(account);
+  // Trailing drawdown modes need the account's closed trades + transactions
+  // to compute the peak. Load via the batched helper (two queries total)
+  // and pass the slice for this one account into computeHeadroom.
+  const riskCtx = await loadAccountRiskContext([account]);
+  const { trades: ddTrades, transactions: ddTx } = riskCtx.get(account.id) || {
+    trades: [],
+    transactions: [],
+  };
+  const headroom = computeHeadroom(account, {
+    trades: ddTrades,
+    transactions: ddTx,
+  });
+  const drawdownMode = account.drawdown_mode || "static";
+  const drawdownModeDef = DRAWDOWN_MODES.find((m) => m.value === drawdownMode);
+  // Consistency rule status: null if not configured or no profitable days yet.
+  const consistency = consistencyStatus(ddTrades, account.consistency_pct);
+  const catDef = categoryDef(account.category);
+  const categoryLabel = catDef?.label || account.type;
 
   const html = `
     <div class="page-header">
@@ -135,7 +161,7 @@ export async function renderDetail({ id }) {
         <h1>${esc(account.name)}
           <span class="badge ${account.type}${
     account.is_active ? "" : " archived"
-  }" style="margin-left:8px;vertical-align:middle">${account.type}</span>
+  }" style="margin-left:8px;vertical-align:middle">${esc(categoryLabel)}</span>
         </h1>
         <div class="muted" style="margin-top:4px">
           ${esc(
@@ -174,13 +200,21 @@ export async function renderDetail({ id }) {
       ${
         account.type === "funded" && headroom.trailingRoom != null
           ? `<div class="stat">
-              <div class="stat-label">Trailing DD room</div>
+              <div class="stat-label">DD room (${esc(
+                drawdownModeDef?.label || drawdownMode
+              )})</div>
               <div class="stat-value ${
                 headroom.trailingRoom < 500 ? "loss" : ""
               }">${fmtMoney(headroom.trailingRoom)}</div>
               <div class="stat-sub">drawdown ${fmtMoney(
                 account.trailing_dd
-              )}</div>
+              )}${
+              headroom.drawdown && headroom.drawdown.mode !== "static"
+                ? ` · peak ${fmtMoney(headroom.drawdown.peak)}${
+                    headroom.drawdown.locked ? " · locked" : ""
+                  }`
+                : ""
+            }</div>
             </div>`
           : ""
       }
@@ -197,6 +231,11 @@ export async function renderDetail({ id }) {
             </div>`
           : ""
       }
+      ${
+        account.type === "funded" && account.consistency_pct != null
+          ? renderConsistencyStat(account, consistency)
+          : ""
+      }
     </div>
 
     ${
@@ -205,11 +244,18 @@ export async function renderDetail({ id }) {
             <div class="section-header"><h2>Rules</h2></div>
             <div class="card">
               <dl class="kv">
-                <dt>Trailing drawdown</dt><dd>${
+                <dt>Category</dt><dd>${esc(categoryLabel)}</dd>
+                <dt>Drawdown type</dt><dd>${esc(
+                  drawdownModeDef?.label || drawdownMode
+                )}</dd>
+                <dt>Drawdown amount</dt><dd>${
                   account.trailing_dd != null
                     ? fmtMoney(account.trailing_dd)
                     : "—"
                 }</dd>
+                <dt>Lock rule</dt><dd>${esc(
+                  lockRuleLabel(account)
+                )}</dd>
                 <dt>Daily loss limit</dt><dd>${
                   account.daily_loss_limit != null
                     ? fmtMoney(account.daily_loss_limit)
@@ -220,7 +266,13 @@ export async function renderDetail({ id }) {
                     ? fmtMoney(account.profit_target)
                     : "—"
                 }</dd>
-                <dt>Max contracts</dt><dd>${account.max_contracts ?? "—"}</dd>
+                <dt>Max minis</dt><dd>${account.max_minis ?? "—"}</dd>
+                <dt>Max micros</dt><dd>${account.max_micros ?? "—"}</dd>
+                <dt>Consistency limit</dt><dd>${
+                  account.consistency_pct != null
+                    ? `${account.consistency_pct}%`
+                    : "—"
+                }</dd>
               </dl>
               ${
                 account.rules_notes
@@ -240,7 +292,10 @@ export async function renderDetail({ id }) {
     <div class="section">
       <div class="section-header">
         <h2>Transactions</h2>
-        <button id="btn-new-tx">+ Add transaction</button>
+        <div class="row-actions">
+          <button id="btn-new-tx">+ Add transaction</button>
+          <button id="btn-new-transfer">Transfer</button>
+        </div>
       </div>
       ${
         txs.length === 0
@@ -262,10 +317,11 @@ export async function renderDetail({ id }) {
                       const def = TX_TYPES.find((x) => x.value === t.type);
                       const sign = def ? def.sign : -1;
                       const display = sign * t.amount;
+                      const label = def?.label || t.type;
                       return `
                         <tr>
                           <td>${fmtDate(t.occurred_at)}</td>
-                          <td><span class="badge ${t.type}">${t.type}</span></td>
+                          <td><span class="badge ${t.type}">${esc(label)}</span></td>
                           <td style="text-align:right" class="${
                             sign > 0 ? "profit" : "loss"
                           }">${fmtMoney(display, { signed: true })}</td>
@@ -311,6 +367,9 @@ export async function renderDetail({ id }) {
     pageEl
       .querySelector("#btn-new-tx")
       ?.addEventListener("click", () => openTransactionModal(account.id));
+    pageEl
+      .querySelector("#btn-new-transfer")
+      ?.addEventListener("click", () => openTransferModal(account.id));
     pageEl.querySelectorAll("[data-tx-del]").forEach((btn) => {
       btn.addEventListener("click", async () => {
         const ok = await confirmDialog({
@@ -335,6 +394,7 @@ function openAccountModal(account = null) {
   const isEdit = !!account;
   const initial = account || {
     type: "funded",
+    category: "sim_funded",
     name: "",
     account_size: "",
     current_balance: "",
@@ -343,33 +403,63 @@ function openAccountModal(account = null) {
     trailing_dd: "",
     daily_loss_limit: "",
     profit_target: "",
-    max_contracts: "",
+    max_minis: "",
+    max_micros: "",
+    drawdown_mode: "static",
+    dd_lock_offset: "",
+    dd_lock_on_payout: 0,
+    consistency_pct: "",
     rules_notes: "",
   };
+  // Normalize legacy accounts that predate the category column.
+  if (!initial.category) {
+    initial.category = initial.type === "cash" ? "cash" : "sim_funded";
+  }
 
   const wrap = document.createElement("div");
   wrap.innerHTML = accountFormHtml(initial, isEdit);
   const form = wrap.querySelector("form");
   const errEl = wrap.querySelector(".form-error");
 
-  // Toggle funded vs cash sections.
-  form.dataset.accountType = initial.type;
-  form.querySelectorAll('input[name="type"]').forEach((r) => {
-    r.addEventListener("change", () => {
-      form.dataset.accountType = r.value;
-    });
+  // Category drives the funded-vs-cash section toggle and the derived
+  // rule engine `type`. Update both on change.
+  const categorySelect = form.querySelector("#account-category-select");
+  const categoryHelp = form.querySelector("#account-category-help");
+  const applyCategory = (value) => {
+    const def = categoryDef(value);
+    const t = def?.type || "cash";
+    form.dataset.accountType = t;
+    form.dataset.accountCategory = value;
+    if (categoryHelp) categoryHelp.textContent = def?.desc || "";
+  };
+  applyCategory(initial.category);
+  categorySelect?.addEventListener("change", () => {
+    applyCategory(categorySelect.value);
   });
+
+  // Drawdown mode help text updates live.
+  const modeSelect = form.querySelector("#drawdown-mode-select");
+  const modeHelp = form.querySelector("#drawdown-mode-help");
+  if (modeSelect && modeHelp) {
+    modeSelect.addEventListener("change", () => {
+      const def = DRAWDOWN_MODES.find((m) => m.value === modeSelect.value);
+      modeHelp.textContent = def?.desc || "";
+    });
+  }
 
   form.addEventListener("submit", async (e) => {
     e.preventDefault();
     errEl.textContent = "";
     const fd = new FormData(form);
+    const category = fd.get("category") || "sim_funded";
+    const derivedType = categoryDef(category)?.type || "cash";
     const data = {
       name: (fd.get("name") || "").trim(),
-      type: fd.get("type"),
+      category,
+      type: derivedType,
       broker: (fd.get("broker") || "").trim() || null,
       prop_firm:
-        fd.get("type") === "funded" ? fd.get("prop_firm") || null : null,
+        derivedType === "funded" ? fd.get("prop_firm") || null : null,
       account_size: Number(fd.get("account_size")),
       current_balance: fd.get("current_balance")
         ? Number(fd.get("current_balance"))
@@ -379,13 +469,23 @@ function openAccountModal(account = null) {
       data.trailing_dd = numOrNull(fd.get("trailing_dd"));
       data.daily_loss_limit = numOrNull(fd.get("daily_loss_limit"));
       data.profit_target = numOrNull(fd.get("profit_target"));
-      data.max_contracts = intOrNull(fd.get("max_contracts"));
+      data.max_minis = intOrNull(fd.get("max_minis"));
+      data.max_micros = intOrNull(fd.get("max_micros"));
+      data.drawdown_mode = fd.get("drawdown_mode") || "static";
+      data.dd_lock_offset = numOrNull(fd.get("dd_lock_offset"));
+      data.dd_lock_on_payout = fd.get("dd_lock_on_payout") ? 1 : 0;
+      data.consistency_pct = numOrNull(fd.get("consistency_pct"));
       data.rules_notes = (fd.get("rules_notes") || "").trim() || null;
     } else {
       data.trailing_dd = null;
       data.daily_loss_limit = null;
       data.profit_target = null;
-      data.max_contracts = null;
+      data.max_minis = null;
+      data.max_micros = null;
+      data.drawdown_mode = "none";
+      data.dd_lock_offset = null;
+      data.dd_lock_on_payout = 0;
+      data.consistency_pct = null;
       data.rules_notes = null;
     }
 
@@ -437,28 +537,24 @@ function accountFormHtml(a, isEdit) {
       )}</option>`
   ).join("");
 
+  const currentCategory = a.category || (a.type === "cash" ? "cash" : "sim_funded");
+  const categoryOptions = ACCOUNT_CATEGORIES.map(
+    (c) =>
+      `<option value="${esc(c.value)}"${
+        currentCategory === c.value ? " selected" : ""
+      }>${esc(c.label)}</option>`
+  ).join("");
+  const currentCategoryDef = categoryDef(currentCategory);
+
   return `
     <form id="account-form" autocomplete="off">
-      ${
-        isEdit
-          ? ""
-          : `<div class="form-row">
-              <label class="form-label">Type</label>
-              <div class="radio-group">
-                <label><input type="radio" name="type" value="funded" ${
-                  a.type === "funded" ? "checked" : ""
-                }> Funded prop</label>
-                <label><input type="radio" name="type" value="cash" ${
-                  a.type === "cash" ? "checked" : ""
-                }> Cash brokerage</label>
-              </div>
-            </div>`
-      }
-      ${
-        isEdit
-          ? `<input type="hidden" name="type" value="${a.type}">`
-          : ""
-      }
+      <div class="form-row">
+        <label>Category</label>
+        <select name="category" id="account-category-select">${categoryOptions}</select>
+        <div class="help" id="account-category-help">${esc(
+          currentCategoryDef?.desc || ""
+        )}</div>
+      </div>
 
       <div class="form-row">
         <label>Name</label>
@@ -472,7 +568,7 @@ function accountFormHtml(a, isEdit) {
         </div>
       </div>
 
-      <div data-show-when="cash">
+      <div data-show-when="cash-broker">
         <div class="form-row">
           <label>Broker</label>
           <select name="broker">${brokerOptions}</select>
@@ -495,13 +591,47 @@ function accountFormHtml(a, isEdit) {
       </div>
 
       <div data-show-when="funded">
+        <div class="form-row">
+          <label>Drawdown type</label>
+          <select name="drawdown_mode" id="drawdown-mode-select">
+            ${DRAWDOWN_MODES.map(
+              (m) =>
+                `<option value="${m.value}"${
+                  (a.drawdown_mode || "static") === m.value ? " selected" : ""
+                }>${esc(m.label)}</option>`
+            ).join("")}
+          </select>
+          <div class="help" id="drawdown-mode-help">${esc(
+            DRAWDOWN_MODES.find(
+              (m) => m.value === (a.drawdown_mode || "static")
+            )?.desc || ""
+          )}</div>
+        </div>
         <div class="form-grid">
           <div class="form-row">
-            <label>Trailing drawdown ($)</label>
+            <label>Drawdown amount ($)</label>
             <input name="trailing_dd" type="number" step="0.01" min="0" value="${
               a.trailing_dd ?? ""
             }">
           </div>
+          <div class="form-row">
+            <label>Lock floor at starting + $</label>
+            <input name="dd_lock_offset" type="number" step="0.01" min="0" value="${
+              a.dd_lock_offset ?? ""
+            }" placeholder="leave empty = no lock">
+            <div class="help">Combine: <code>0</code>. Sim funded: usually <code>100</code>. Empty means the floor keeps trailing forever.</div>
+          </div>
+        </div>
+        <div class="form-row">
+          <label>
+            <input type="checkbox" name="dd_lock_on_payout" value="1"${
+              a.dd_lock_on_payout ? " checked" : ""
+            }>
+            Also lock on any withdrawal or payout
+          </label>
+          <div class="help">Sim-funded accounts typically freeze the trailing floor the moment you take a withdrawal or payout, regardless of whether the peak threshold has been reached.</div>
+        </div>
+        <div class="form-grid">
           <div class="form-row">
             <label>Daily loss limit ($)</label>
             <input name="daily_loss_limit" type="number" step="0.01" min="0" value="${
@@ -515,11 +645,24 @@ function accountFormHtml(a, isEdit) {
             }">
           </div>
           <div class="form-row">
-            <label>Max contracts</label>
-            <input name="max_contracts" type="number" step="1" min="0" value="${
-              a.max_contracts ?? ""
-            }">
+            <label>Max minis</label>
+            <input name="max_minis" type="number" step="1" min="0" value="${
+              a.max_minis ?? ""
+            }" placeholder="e.g. 4">
           </div>
+          <div class="form-row">
+            <label>Max micros</label>
+            <input name="max_micros" type="number" step="1" min="0" value="${
+              a.max_micros ?? ""
+            }" placeholder="e.g. 40">
+          </div>
+        </div>
+        <div class="form-row">
+          <label>Consistency limit (%)</label>
+          <input name="consistency_pct" type="number" step="1" min="0" max="100" value="${
+            a.consistency_pct ?? ""
+          }" placeholder="e.g. 30">
+          <div class="help">Best day's profit must stay under this % of total profit. Evaluated end-of-day, display only. Leave empty to disable.</div>
         </div>
         <div class="form-row">
           <label>Rules notes</label>
@@ -543,18 +686,41 @@ function accountFormHtml(a, isEdit) {
 
 // ---------- TRANSACTION FORM (modal) ----------
 
-function openTransactionModal(accountId) {
+async function openTransactionModal(accountId) {
   const today = new Date().toISOString().slice(0, 10);
+  // Load candidate "paid for" funded accounts for fee-type transactions.
+  // Active only by default — a failed combine you archived shouldn't
+  // show up as a viable target for new fee attribution.
+  const allAccounts = await listAccounts({ includeArchived: false });
+  const fundedAccounts = allAccounts.filter(
+    (a) => categoryDef(a.category)?.type === "funded"
+  );
+  const paidForOptions =
+    `<option value="">(none)</option>` +
+    fundedAccounts
+      .map(
+        (a) =>
+          `<option value="${a.id}">${esc(a.name)} — ${esc(
+            categoryDef(a.category)?.label || a.type
+          )}</option>`
+      )
+      .join("");
+
   const wrap = document.createElement("div");
   wrap.innerHTML = `
     <form id="tx-form" autocomplete="off">
       <div class="form-row">
         <label>Type</label>
-        <select name="type">
-          ${TX_TYPES.map(
+        <select name="type" id="tx-type-select">
+          ${MANUAL_TX_TYPES.map(
             (t) => `<option value="${t.value}">${t.label}</option>`
           ).join("")}
         </select>
+      </div>
+      <div class="form-row" id="tx-paid-for-row" style="display:none">
+        <label>Paid for account (optional)</label>
+        <select name="paid_for_account_id">${paidForOptions}</select>
+        <div class="help">Links this fee to the combine/funded account it pays for so the ledger can show per-account fee burn.</div>
       </div>
       <div class="form-grid">
         <div class="form-row">
@@ -581,6 +747,18 @@ function openTransactionModal(accountId) {
 
   const form = wrap.querySelector("form");
   const errEl = wrap.querySelector(".form-error");
+  const typeSelect = form.querySelector("#tx-type-select");
+  const paidForRow = form.querySelector("#tx-paid-for-row");
+  // The "paid for account" selector is only relevant for fee-style
+  // transactions (subscription fee, reset fee, activation fee).
+  const togglePaidFor = () => {
+    const t = typeSelect.value;
+    const show = t === "fee" || t === "reset" || t === "activation";
+    paidForRow.style.display = show ? "" : "none";
+  };
+  typeSelect.addEventListener("change", togglePaidFor);
+  togglePaidFor();
+
   form.addEventListener("submit", async (e) => {
     e.preventDefault();
     errEl.textContent = "";
@@ -590,12 +768,16 @@ function openTransactionModal(accountId) {
       errEl.textContent = "Amount must be a positive number.";
       return;
     }
+    const paidForRaw = fd.get("paid_for_account_id");
+    const paidForId =
+      paidForRaw && paidForRaw !== "" ? Number(paidForRaw) : null;
     try {
       await addTransaction(accountId, {
         type: fd.get("type"),
         amount,
         occurred_at: new Date(fd.get("occurred_at")).toISOString(),
         note: (fd.get("note") || "").trim() || null,
+        paid_for_account_id: paidForId,
       });
       closeModal();
       refreshPage();
@@ -611,7 +793,148 @@ function openTransactionModal(accountId) {
   openModal({ title: "New transaction", body: wrap, width: 480 });
 }
 
+// ---------- TRANSFER FORM (modal) ----------
+
+async function openTransferModal(sourceAccountId) {
+  const today = new Date().toISOString().slice(0, 10);
+  const allAccounts = await listAccounts({ includeArchived: false });
+  const source = allAccounts.find((a) => a.id === sourceAccountId);
+  if (!source) return;
+  // Destinations: every other active account. Funded categories are
+  // still valid destinations — e.g. a transfer *into* a funded account
+  // is unusual but could happen if the user recorded a payout backward
+  // and wants to reverse it. We don't filter aggressively here.
+  const destOptions = allAccounts
+    .filter((a) => a.id !== sourceAccountId)
+    .map(
+      (a) =>
+        `<option value="${a.id}">${esc(a.name)} — ${esc(
+          categoryDef(a.category)?.label || a.type
+        )}</option>`
+    )
+    .join("");
+  if (!destOptions) {
+    alert("No other active accounts to transfer to. Create one first.");
+    return;
+  }
+
+  const wrap = document.createElement("div");
+  wrap.innerHTML = `
+    <form id="xfer-form" autocomplete="off">
+      <div class="form-row">
+        <label>From</label>
+        <div><strong>${esc(source.name)}</strong> <span class="dim">(${esc(
+    categoryDef(source.category)?.label || source.type
+  )})</span></div>
+      </div>
+      <div class="form-row">
+        <label>To</label>
+        <select name="to_account_id" required>${destOptions}</select>
+      </div>
+      <div class="form-grid">
+        <div class="form-row">
+          <label>Amount ($)</label>
+          <input name="amount" type="number" step="0.01" min="0" required>
+        </div>
+        <div class="form-row">
+          <label>Date</label>
+          <input name="occurred_at" type="date" value="${today}" required>
+        </div>
+      </div>
+      <div class="form-row">
+        <label>Note (optional)</label>
+        <input name="note" placeholder="Monthly sweep to Schwab...">
+      </div>
+      <div class="help">Creates two linked ledger entries — a transfer_out on ${esc(
+        source.name
+      )} and a matching transfer_in on the destination. Deleting either side removes both.</div>
+      <div class="form-error"></div>
+      <div class="form-actions">
+        <button type="button" data-action="cancel">Cancel</button>
+        <button type="submit" class="primary">Transfer</button>
+      </div>
+    </form>
+  `;
+
+  const form = wrap.querySelector("form");
+  const errEl = wrap.querySelector(".form-error");
+  form.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    errEl.textContent = "";
+    const fd = new FormData(form);
+    const amount = Number(fd.get("amount"));
+    const toId = Number(fd.get("to_account_id"));
+    if (!Number.isFinite(amount) || amount <= 0) {
+      errEl.textContent = "Amount must be a positive number.";
+      return;
+    }
+    if (!Number.isFinite(toId)) {
+      errEl.textContent = "Pick a destination account.";
+      return;
+    }
+    try {
+      await createTransfer({
+        from_account_id: sourceAccountId,
+        to_account_id: toId,
+        amount,
+        occurred_at: new Date(fd.get("occurred_at")).toISOString(),
+        note: (fd.get("note") || "").trim() || null,
+      });
+      closeModal();
+      refreshPage();
+    } catch (err) {
+      console.error(err);
+      errEl.textContent = String(err.message || err);
+    }
+  });
+  wrap
+    .querySelector('[data-action="cancel"]')
+    .addEventListener("click", closeModal);
+
+  openModal({ title: "New transfer", body: wrap, width: 480 });
+}
+
 // ---------- helpers ----------
+
+// Human-readable description of the account's drawdown lock rule.
+function lockRuleLabel(account) {
+  if (account.dd_lock_offset == null) return "None";
+  const base =
+    account.dd_lock_offset === 0
+      ? "At starting balance"
+      : `At starting + ${fmtMoney(account.dd_lock_offset)}`;
+  return account.dd_lock_on_payout ? `${base} · or on withdrawal/payout` : base;
+}
+
+// Consistency stat tile for the account detail page. Tone is derived
+// from how close the best-day ratio is to the configured limit.
+function renderConsistencyStat(account, c) {
+  if (!c) {
+    return `
+      <div class="stat">
+        <div class="stat-label">Consistency</div>
+        <div class="stat-value dim">—</div>
+        <div class="stat-sub">limit ${account.consistency_pct}% · no profitable days yet</div>
+      </div>
+    `;
+  }
+  const pct = c.ratio * 100;
+  const limitPct = c.limit * 100;
+  const tone = c.breach
+    ? "loss"
+    : limitPct - pct < 5
+    ? "warn"
+    : "profit";
+  return `
+    <div class="stat">
+      <div class="stat-label">Consistency</div>
+      <div class="stat-value ${tone}">${pct.toFixed(0)}%</div>
+      <div class="stat-sub">best ${fmtMoney(c.bestDay)} · limit ${limitPct.toFixed(
+    0
+  )}%</div>
+    </div>
+  `;
+}
 
 function numOrNull(v) {
   if (v === "" || v == null) return null;

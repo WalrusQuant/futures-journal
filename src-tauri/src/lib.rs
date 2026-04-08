@@ -186,6 +186,30 @@ pub fn run() {
             sql: include_str!("../migrations/005_trade_review.sql"),
             kind: MigrationKind::Up,
         },
+        Migration {
+            version: 6,
+            description: "add account drawdown_mode and dd_locks_at_target",
+            sql: include_str!("../migrations/006_drawdown_mode.sql"),
+            kind: MigrationKind::Up,
+        },
+        Migration {
+            version: 7,
+            description: "account rule refinements: lock offset, mini/micro caps, consistency",
+            sql: include_str!("../migrations/007_account_rule_refinements.sql"),
+            kind: MigrationKind::Up,
+        },
+        Migration {
+            version: 8,
+            description: "account category (combine/sim_funded/live_funded/cash/bank)",
+            sql: include_str!("../migrations/008_account_category.sql"),
+            kind: MigrationKind::Up,
+        },
+        Migration {
+            version: 9,
+            description: "transactions: transfer + activation types, linked_tx_id, paid_for_account_id",
+            sql: include_str!("../migrations/009_transfers_and_tx_types.sql"),
+            kind: MigrationKind::Up,
+        },
     ];
 
     tauri::Builder::default()

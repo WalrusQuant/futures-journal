@@ -292,7 +292,9 @@ export async function renderDetail({ id }) {
 
 export async function renderForm(params = {}) {
   const isEdit = !!params.id;
-  const accounts = await listAccounts({ includeArchived: false });
+  // Bank accounts are ledger-only and can't hold plans.
+  const allAccounts = await listAccounts({ includeArchived: false });
+  const accounts = allAccounts.filter((a) => a.category !== "bank");
   const instruments = await listInstruments();
 
   if (accounts.length === 0) {

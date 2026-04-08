@@ -1,4 +1,11 @@
-import { listAccounts, computeHeadroom } from "../lib/accounts.js";
+import {
+  listAccounts,
+  listAllTransactions,
+  computeHeadroom,
+  loadAccountRiskContext,
+  DRAWDOWN_MODES,
+} from "../lib/accounts.js";
+import { realMoneyLedger, filterLedgerByRange } from "../lib/ledger.js";
 import {
   listTrades,
   listTradesNeedingReview,
@@ -17,16 +24,42 @@ import {
   dayBounds,
   weekBounds,
   monthBounds,
+  consistencyStatus,
 } from "../lib/analytics.js";
 import { lineChart } from "../components/charts.js";
 import { fmtMoney, fmtDateTime, esc } from "../lib/format.js";
 import { getSetting, SETTING_KEYS } from "../lib/settings.js";
 
 export async function render() {
-  const accounts = await listAccounts({ includeArchived: false });
-  const allTrades = await listTrades({});
+  // Accounts: active only for rendering the Today cards. Archived
+  // accounts still feed the real-money ledger (historical fees from
+  // failed combines) so we also need the full list for that.
+  const [accounts, allAccountsFull, allTrades, allTransactions] =
+    await Promise.all([
+      listAccounts({ includeArchived: false }),
+      listAccounts({ includeArchived: true }),
+      listTrades({}),
+      listAllTransactions(),
+    ]);
   const openTrades = allTrades.filter((t) => t.status === "open");
   const closedTrades = allTrades.filter((t) => t.status === "closed");
+
+  // Real-money ledger: MTD for the headline stat. Uses the full account
+  // list (including archived) because historical fee outflows belong in
+  // the real-money picture even if the combine failed months ago.
+  const ledger = realMoneyLedger(allAccountsFull, allTrades, allTransactions);
+  const now = new Date();
+  const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
+  const endOfMonth = new Date(
+    now.getFullYear(),
+    now.getMonth() + 1,
+    0,
+    23,
+    59,
+    59,
+    999
+  ).toISOString();
+  const ledgerMTD = filterLedgerByRange(ledger, startOfMonth, endOfMonth);
 
   const weekStart = Number(await getSetting(SETTING_KEYS.weekStart, "0"));
 
@@ -52,10 +85,17 @@ export async function render() {
   const recent = closedTrades.slice(0, 5);
   const activePlans = (await listPlans({ status: "active" })).slice(0, 5);
 
-  // Account headroom warnings (funded only, < $750 from trailing DD floor)
+  // Batched risk context for every active account. Two queries total
+  // regardless of how many accounts. Used by both the headroom warnings
+  // and the per-account Today cards so neither path becomes N+1.
+  const riskCtx = await loadAccountRiskContext(accounts);
+  const headroomFor = (a) =>
+    computeHeadroom(a, riskCtx.get(a.id) || { trades: [], transactions: [] });
+
+  // Account headroom warnings (funded only, < $750 from drawdown floor)
   const warnings = accounts
     .filter((a) => a.type === "funded" && a.trailing_dd != null)
-    .map((a) => ({ a, hr: computeHeadroom(a) }))
+    .map((a) => ({ a, hr: headroomFor(a) }))
     .filter(({ hr }) => hr.trailingRoom != null && hr.trailingRoom < 750);
 
   // Today panel: one card per active account. Cards adapt to whatever rules
@@ -80,14 +120,24 @@ export async function render() {
         dailyPnl(a.id),
         openTradesWithRisk(a.id, { instrumentMap }),
       ]);
-      const { riskDollars: openRisk, contracts: openContracts } =
-        summarizeOpen(openEntries);
+      const {
+        riskDollars: openRisk,
+        contracts: openContracts,
+        minis: openMinis,
+        micros: openMicros,
+      } = summarizeOpen(openEntries);
+      const ctx = riskCtx.get(a.id) || { trades: [], transactions: [] };
       return {
         account: a,
         dpnl,
         openRisk,
         openContracts,
-        headroom: computeHeadroom(a),
+        openMinis,
+        openMicros,
+        headroom: headroomFor(a),
+        // Closed trades for this account, reused by the consistency stat
+        // so we don't re-query per card.
+        accountTrades: ctx.trades,
       };
     })
   );
@@ -150,6 +200,16 @@ export async function render() {
         <div class="stat-sub">${monthTrades.length} trade${
     monthTrades.length === 1 ? "" : "s"
   }</div>
+      </div>
+      <div class="stat">
+        <div class="stat-label">Real this month</div>
+        <div class="stat-value ${pnlClass(ledgerMTD.totals.net)}">${fmtMoney(
+    ledgerMTD.totals.net,
+    { signed: true }
+  )}</div>
+        <div class="stat-sub">
+          <a href="#/ledger?range=mtd" class="muted">ledger →</a>
+        </div>
       </div>
       <div class="stat">
         <div class="stat-label">Open positions</div>
@@ -249,7 +309,9 @@ export async function render() {
                     <th class="num">Headroom</th>
                   </tr>
                 </thead>
-                <tbody>${accounts.map(accountRow).join("")}</tbody>
+                <tbody>${accounts
+                  .map((a) => accountRow(a, headroomFor(a)))
+                  .join("")}</tbody>
               </table>
             </div>`
       }
@@ -348,7 +410,16 @@ function renderTodayBanner({ href, title, desc, count, unit, tone }) {
   `;
 }
 
-function renderTodayCard({ account: a, dpnl, openRisk, openContracts, headroom }) {
+function renderTodayCard({
+  account: a,
+  dpnl,
+  openRisk,
+  openContracts,
+  openMinis,
+  openMicros,
+  headroom,
+  accountTrades,
+}) {
   const rows = [];
 
   // Daily loss limit bar (if configured).
@@ -365,10 +436,12 @@ function renderTodayCard({ account: a, dpnl, openRisk, openContracts, headroom }
     );
   }
 
-  // Trailing drawdown: displayed as a simple stat line, not a bar. A bar
-  // doesn't work here because once balance > start + dd, "room" exceeds
-  // the allowance and the progress-bar mental model breaks. Better to show
-  // "room until floor" directly and color it by how tight it is.
+  // Drawdown: displayed as a simple stat line, not a bar. A bar doesn't
+  // work here because once balance > peak + dd, "room" exceeds the
+  // allowance and the progress-bar mental model breaks. Better to show
+  // "room until floor" directly and color it by how tight it is. The
+  // label spells out which drawdown mode the account is running so the
+  // number isn't ambiguous at a glance.
   if (a.type === "funded" && a.trailing_dd != null && headroom.trailingRoom != null) {
     const roomAfterOpen = headroom.trailingRoom - openRisk;
     const tone =
@@ -377,25 +450,75 @@ function renderTodayCard({ account: a, dpnl, openRisk, openContracts, headroom }
         : roomAfterOpen < 750
         ? "warn"
         : "";
+    const modeLabel =
+      DRAWDOWN_MODES.find((m) => m.value === (a.drawdown_mode || "static"))
+        ?.label || "Static";
+    const lockedSuffix =
+      headroom.drawdown && headroom.drawdown.locked ? " · locked" : "";
     rows.push(`
       <div class="today-rule today-rule-stat">
-        <span class="dim">Trailing DD room</span>
+        <span class="dim">DD room (${esc(modeLabel)}${lockedSuffix})</span>
         <strong class="${tone}">${fmtMoney(Math.max(0, roomAfterOpen))}</strong>
         <span class="dim" style="font-size:var(--fs-xs)">allowance ${fmtMoney(a.trailing_dd)}</span>
       </div>
     `);
   }
 
-  // Max contracts (if configured).
-  if (a.max_contracts != null && a.max_contracts > 0) {
+  // Max minis (if configured).
+  if (a.max_minis != null && a.max_minis > 0) {
     rows.push(
       renderRuleBar({
-        label: "Open contracts",
-        used: openContracts,
-        limit: a.max_contracts,
+        label: "Open minis",
+        used: openMinis,
+        limit: a.max_minis,
         formatter: (n) => String(n),
       })
     );
+  }
+
+  // Max micros (if configured).
+  if (a.max_micros != null && a.max_micros > 0) {
+    rows.push(
+      renderRuleBar({
+        label: "Open micros",
+        used: openMicros,
+        limit: a.max_micros,
+        formatter: (n) => String(n),
+      })
+    );
+  }
+
+  // Consistency rule (funded accounts with consistency_pct set). Stat
+  // line, not a bar — the numerator/denominator change at different
+  // rates and a bar gets confusing once you're past the limit.
+  if (a.type === "funded" && a.consistency_pct != null) {
+    const c = consistencyStatus(accountTrades || [], a.consistency_pct);
+    if (c == null) {
+      rows.push(`
+        <div class="today-rule today-rule-stat">
+          <span class="dim">Consistency</span>
+          <strong class="dim">—</strong>
+          <span class="dim" style="font-size:var(--fs-xs)">limit ${a.consistency_pct}%</span>
+        </div>
+      `);
+    } else {
+      const pct = c.ratio * 100;
+      const limitPct = c.limit * 100;
+      const tone = c.breach
+        ? "loss"
+        : limitPct - pct < 5
+        ? "warn"
+        : "";
+      rows.push(`
+        <div class="today-rule today-rule-stat">
+          <span class="dim">Consistency</span>
+          <strong class="${tone}">${pct.toFixed(0)}%</strong>
+          <span class="dim" style="font-size:var(--fs-xs)">limit ${limitPct.toFixed(
+            0
+          )}%</span>
+        </div>
+      `);
+    }
   }
 
   // Profit target (funded accounts only, if configured).
@@ -483,9 +606,8 @@ function renderRuleBar({ label, used, limit, formatter, footer, inverted = false
   `;
 }
 
-function accountRow(a) {
+function accountRow(a, hr) {
   const pnl = a.current_balance - a.account_size;
-  const hr = computeHeadroom(a);
   let headroomCell = `<span class="dim">—</span>`;
   if (a.type === "funded" && hr.trailingRoom != null) {
     const cls =

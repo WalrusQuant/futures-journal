@@ -636,7 +636,11 @@ function renderReviewSummary(t) {
 
 export async function renderForm(params = {}) {
   const isEdit = !!params.id;
-  const accounts = await listAccounts({ includeArchived: false });
+  // Bank accounts don't trade — they're real-money ledger buckets only.
+  // Exclude them from the account picker so users can't accidentally log
+  // a trade against a transfer account.
+  const allAccounts = await listAccounts({ includeArchived: false });
+  const accounts = allAccounts.filter((a) => a.category !== "bank");
   const instruments = await listInstruments();
 
   if (accounts.length === 0) {

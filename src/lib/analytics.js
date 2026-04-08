@@ -98,6 +98,51 @@ export function equityCurve(trades) {
   return points;
 }
 
+// Consistency rule evaluator. Takes closed trades (all of them, since the
+// rule applies over the account's lifetime) and a percentage threshold
+// 0–100 (e.g. 30 = "best day may not exceed 30% of total profit").
+//
+// Returns null when there's nothing meaningful to report yet — an account
+// with no net profit or no profitable days at all isn't breaching
+// anything. Otherwise returns:
+//   {
+//     bestDay:    dollars on the single best day,
+//     bestDayKey: YYYY-MM-DD of that day,
+//     totalPnl:   sum across all closed trades,
+//     ratio:      bestDay / totalPnl (0..1),
+//     limit:      pct / 100,
+//     breach:     true if ratio > limit,
+//   }
+//
+// Display-only — the consistency rule can't meaningfully block
+// individual trades since it's evaluated end-of-day against cumulative
+// profit, so callers render this as a tone-coded stat, not a blocker.
+export function consistencyStatus(trades, pct) {
+  if (pct == null) return null;
+  const byDay = groupByDay(trades);
+  let bestDay = 0;
+  let bestDayKey = null;
+  let total = 0;
+  for (const [key, d] of byDay) {
+    total += d.pnl;
+    if (d.pnl > bestDay) {
+      bestDay = d.pnl;
+      bestDayKey = key;
+    }
+  }
+  if (total <= 0 || bestDay <= 0) return null;
+  const ratio = bestDay / total;
+  const limit = pct / 100;
+  return {
+    bestDay,
+    bestDayKey,
+    totalPnl: total,
+    ratio,
+    limit,
+    breach: ratio > limit,
+  };
+}
+
 // Map of YYYY-MM-DD (local date) -> { pnl, count, wins, losses }
 export function groupByDay(trades) {
   const map = new Map();

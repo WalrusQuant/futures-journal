@@ -5,6 +5,7 @@ import * as plans from "./pages/plans.js";
 import * as tags from "./pages/tags.js";
 import * as analytics from "./pages/analytics.js";
 import * as calendar from "./pages/calendar.js";
+import * as ledger from "./pages/ledger.js";
 import * as settings from "./pages/settings.js";
 import { makePlaceholder } from "./pages/placeholder.js";
 import { getSetting, SETTING_KEYS } from "./lib/settings.js";
@@ -28,6 +29,7 @@ const routes = [
   { path: "/plans/:id",         render: plans.renderDetail },
   { path: "/analytics",         render: analytics.render },
   { path: "/calendar",          render: calendar.render },
+  { path: "/ledger",            render: ledger.render },
   { path: "/tags",              render: tags.render },
   { path: "/settings",          render: settings.render },
 ];
@@ -39,6 +41,7 @@ const navItems = [
   { path: "/plans",     label: "Plans"     },
   { path: "/analytics", label: "Analytics" },
   { path: "/calendar",  label: "Calendar"  },
+  { path: "/ledger",    label: "Ledger"    },
   { path: "/tags",      label: "Tags"      },
   { path: "/settings",  label: "Settings"  },
 ];
