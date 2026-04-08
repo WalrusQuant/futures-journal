@@ -21,6 +21,8 @@ import {
 } from "../lib/calc.js";
 import { fmtMoney, fmtNumber, fmtDate, esc } from "../lib/format.js";
 import { mountImageGallery } from "../components/image-gallery.js";
+import { mountTagPicker } from "../components/tag-picker.js";
+import { listTags, getPlanTags, setPlanTags } from "../lib/tags.js";
 import { refreshPage } from "../main.js";
 
 // ---------- LIST ----------
@@ -104,7 +106,9 @@ function rowHtml(p) {
     <tr class="clickable" data-id="${p.id}">
       <td>${fmtDate(p.created_at)}</td>
       <td>${esc(p.account_name)}</td>
-      <td><strong>${esc(p.instrument)}</strong></td>
+      <td><strong>${esc(p.instrument)}</strong>
+        ${p.tag_names ? `<div class="trade-row-tags">${renderRowTags(p)}</div>` : ""}
+      </td>
       <td><span class="badge ${p.direction}">${p.direction}</span></td>
       <td class="num">${p.contracts}</td>
       <td class="num">${fmtNumber(p.entry_price, 4)}</td>
@@ -116,10 +120,25 @@ function rowHtml(p) {
   `;
 }
 
+function renderRowTags(p) {
+  if (!p.tag_names) return "";
+  const names = p.tag_names.split("|");
+  const colors = (p.tag_colors || "").split("|");
+  return names
+    .map(
+      (n, i) =>
+        `<span class="tag-static" style="--tag-color:${esc(
+          colors[i] || "#94a3b8"
+        )}">${esc(n)}</span>`
+    )
+    .join("");
+}
+
 // ---------- DETAIL ----------
 
 export async function renderDetail({ id }) {
   const plan = await getPlan(id);
+  const planTags = plan ? await getPlanTags(id) : [];
   if (!plan) {
     return {
       html: `
@@ -204,6 +223,21 @@ export async function renderDetail({ id }) {
           <dt>Stop</dt><dd>${fmtNumber(plan.stop_price, 4)}</dd>
           <dt>Target</dt><dd>${fmtNumber(plan.target_price, 4)}</dd>
         </dl>
+        ${
+          planTags.length
+            ? `<div style="margin-top:var(--sp-3);padding-top:var(--sp-3);border-top:1px solid var(--border)">
+                <div class="form-label" style="margin-bottom:var(--sp-2)">Tags</div>
+                <div>${planTags
+                  .map(
+                    (t) =>
+                      `<span class="tag-static" style="--tag-color:${esc(
+                        t.color
+                      )}">${esc(t.name)}</span>`
+                  )
+                  .join("")}</div>
+              </div>`
+            : ""
+        }
         ${
           plan.thesis
             ? `<div style="margin-top:var(--sp-3);padding-top:var(--sp-3);border-top:1px solid var(--border)">
@@ -385,12 +419,18 @@ export async function renderForm(params = {}) {
 
       <div class="card">
         <div class="form-row">
+          <label>Tags</label>
+          <div id="tag-picker-mount"></div>
+        </div>
+        <div class="form-row">
           <label>Thesis</label>
           <textarea name="thesis" placeholder="Why this trade? Key levels, context, what would invalidate it.">${esc(
             plan.thesis || ""
           )}</textarea>
         </div>
       </div>
+
+      <div class="section" id="image-section"></div>
 
       <div class="form-error"></div>
       <div class="form-actions">
@@ -402,11 +442,29 @@ export async function renderForm(params = {}) {
     </form>
   `;
 
+  const allTags = await listTags();
+  const initialSelectedTagIds = isEdit
+    ? (await getPlanTags(plan.id)).map((t) => t.id)
+    : [];
+
   function mount(pageEl) {
     const form = pageEl.querySelector("#plan-form");
     const tickInfo = pageEl.querySelector("#tick-info");
     const previewEl = pageEl.querySelector("#preview");
     const errEl = pageEl.querySelector(".form-error");
+    const tagPicker = mountTagPicker(
+      pageEl.querySelector("#tag-picker-mount"),
+      allTags,
+      initialSelectedTagIds
+    );
+
+    let galleryHandle = null;
+    (async () => {
+      galleryHandle = await mountImageGallery(
+        pageEl.querySelector("#image-section"),
+        isEdit ? { planId: plan.id } : { pending: true }
+      );
+    })();
 
     function currentInstrument() {
       const sym = form.elements.instrument.value;
@@ -487,13 +545,18 @@ export async function renderForm(params = {}) {
         return;
       }
       try {
+        let savedId;
         if (isEdit) {
           await updatePlan(plan.id, draft);
-          location.hash = `#/plans/${plan.id}`;
+          savedId = plan.id;
         } else {
-          const id = await createPlan(draft);
-          location.hash = `#/plans/${id}`;
+          savedId = await createPlan(draft);
         }
+        await setPlanTags(savedId, tagPicker.getSelected());
+        if (!isEdit && galleryHandle) {
+          await galleryHandle.commitPending({ planId: savedId });
+        }
+        location.hash = `#/plans/${savedId}`;
       } catch (err) {
         console.error(err);
         errEl.textContent = String(err.message || err);

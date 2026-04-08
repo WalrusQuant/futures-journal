@@ -62,6 +62,12 @@ pub fn run() {
             sql: include_str!("../migrations/002_account_rules_notes.sql"),
             kind: MigrationKind::Up,
         },
+        Migration {
+            version: 3,
+            description: "add plan_tags",
+            sql: include_str!("../migrations/003_plan_tags.sql"),
+            kind: MigrationKind::Up,
+        },
     ];
 
     tauri::Builder::default()

@@ -392,6 +392,18 @@ td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
 }
 
 /* Image gallery */
+.image-zone {
+  border-radius: var(--r-md);
+  transition: outline-color 0.15s, background 0.15s;
+  outline: 2px dashed transparent;
+  outline-offset: 2px;
+}
+.image-zone.drop-over {
+  outline-color: var(--accent);
+  background: var(--accent-soft);
+}
+.image-empty { border-style: dashed !important; }
+
 .image-gallery {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));

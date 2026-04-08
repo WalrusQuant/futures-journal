@@ -19,7 +19,13 @@ export async function listPlans(filters = {}) {
     params.push(filters.account_id);
   }
   const sql = `
-    SELECT p.*, a.name AS account_name
+    SELECT p.*, a.name AS account_name,
+      (SELECT GROUP_CONCAT(tg.name, '|')
+         FROM plan_tags pt JOIN tags tg ON tg.id = pt.tag_id
+         WHERE pt.plan_id = p.id) AS tag_names,
+      (SELECT GROUP_CONCAT(tg.color, '|')
+         FROM plan_tags pt JOIN tags tg ON tg.id = pt.tag_id
+         WHERE pt.plan_id = p.id) AS tag_colors
     FROM plans p
     JOIN accounts a ON a.id = p.account_id
     ${where.length ? "WHERE " + where.join(" AND ") : ""}

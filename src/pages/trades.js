@@ -624,6 +624,8 @@ export async function renderForm(params = {}) {
         </div>
       </div>
 
+      <div class="section" id="image-section"></div>
+
       <div class="form-error"></div>
       <div class="form-actions">
         <a href="#${isEdit ? "/trades/" + trade.id : "/trades"}"><button type="button">Cancel</button></a>
@@ -651,6 +653,15 @@ export async function renderForm(params = {}) {
       allTags,
       initialSelectedTagIds
     );
+
+    // Image gallery: pending for new trades, DB-backed for edits.
+    let galleryHandle = null;
+    (async () => {
+      galleryHandle = await mountImageGallery(
+        pageEl.querySelector("#image-section"),
+        isEdit ? { tradeId: trade.id } : { pending: true }
+      );
+    })();
 
     function currentInstrument() {
       const sym = form.elements.instrument.value;
@@ -777,6 +788,9 @@ export async function renderForm(params = {}) {
           }
         }
         await setTradeTags(savedId, tagPicker.getSelected());
+        if (!isEdit && galleryHandle) {
+          await galleryHandle.commitPending({ tradeId: savedId });
+        }
         location.hash = `#/trades/${savedId}`;
       } catch (err) {
         console.error(err);

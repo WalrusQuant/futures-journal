@@ -68,3 +68,23 @@ export async function setTradeTags(tradeId, tagIds) {
     );
   }
 }
+
+export async function getPlanTags(planId) {
+  return query(
+    `SELECT t.* FROM tags t
+     JOIN plan_tags pt ON pt.tag_id = t.id
+     WHERE pt.plan_id = ?
+     ORDER BY t.name`,
+    [planId]
+  );
+}
+
+export async function setPlanTags(planId, tagIds) {
+  await exec("DELETE FROM plan_tags WHERE plan_id = ?", [planId]);
+  for (const tid of tagIds) {
+    await exec(
+      "INSERT INTO plan_tags (plan_id, tag_id) VALUES (?, ?)",
+      [planId, tid]
+    );
+  }
+}

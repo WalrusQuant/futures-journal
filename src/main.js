@@ -88,9 +88,28 @@ function shellHtml() {
   `;
 }
 
+// Page cleanup registry: long-lived listeners (e.g. window-level drag-drop)
+// register here so they get torn down when the user navigates away.
+let pageCleanups = [];
+export function registerPageCleanup(fn) {
+  pageCleanups.push(fn);
+}
+function runPageCleanups() {
+  const list = pageCleanups;
+  pageCleanups = [];
+  for (const fn of list) {
+    try {
+      fn();
+    } catch (err) {
+      console.error("page cleanup failed:", err);
+    }
+  }
+}
+
 // Re-render the page area without rebuilding the shell.
 // Pages return either an HTML string OR { html, mount(pageEl) }.
 export async function refreshPage() {
+  runPageCleanups();
   const path = currentPath();
   const { route, params } = matchRoute(path);
   const pageEl = document.getElementById("page");
