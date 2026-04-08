@@ -1,18 +1,24 @@
 import * as dashboard from "./pages/dashboard.js";
 import * as accounts from "./pages/accounts.js";
+import * as trades from "./pages/trades.js";
 import { makePlaceholder } from "./pages/placeholder.js";
 
 // Route table. Patterns may include :params, e.g. "/accounts/:id".
+// IMPORTANT: exact paths must precede their pattern siblings — the matcher
+// walks the table in order and stops at the first hit.
 const routes = [
-  { path: "/",             render: dashboard.render },
-  { path: "/accounts",     render: accounts.renderList },
-  { path: "/accounts/:id", render: accounts.renderDetail },
-  { path: "/trades",       render: makePlaceholder("Trades",    "Phase 2") },
-  { path: "/plans",        render: makePlaceholder("Plans",     "Phase 3") },
-  { path: "/analytics",    render: makePlaceholder("Analytics", "Phase 5") },
-  { path: "/calendar",     render: makePlaceholder("Calendar",  "Phase 5") },
-  { path: "/tags",         render: makePlaceholder("Tags",      "Phase 4") },
-  { path: "/settings",     render: makePlaceholder("Settings",  "Phase 6") },
+  { path: "/",                  render: dashboard.render },
+  { path: "/accounts",          render: accounts.renderList },
+  { path: "/accounts/:id",      render: accounts.renderDetail },
+  { path: "/trades",            render: trades.renderList },
+  { path: "/trades/new",        render: trades.renderForm },
+  { path: "/trades/:id/edit",   render: trades.renderForm },
+  { path: "/trades/:id",        render: trades.renderDetail },
+  { path: "/plans",             render: makePlaceholder("Plans",     "Phase 3") },
+  { path: "/analytics",         render: makePlaceholder("Analytics", "Phase 5") },
+  { path: "/calendar",          render: makePlaceholder("Calendar",  "Phase 5") },
+  { path: "/tags",              render: makePlaceholder("Tags",      "Phase 4") },
+  { path: "/settings",          render: makePlaceholder("Settings",  "Phase 6") },
 ];
 
 const navItems = [
@@ -27,7 +33,10 @@ const navItems = [
 ];
 
 function currentPath() {
-  return location.hash.replace(/^#/, "") || "/";
+  // Strip leading "#" and any "?query" so route matching is path-only.
+  const raw = location.hash.replace(/^#/, "") || "/";
+  const q = raw.indexOf("?");
+  return q >= 0 ? raw.slice(0, q) : raw;
 }
 
 function matchRoute(path) {

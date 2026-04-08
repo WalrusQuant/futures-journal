@@ -263,6 +263,48 @@ form[data-account-type="cash"]   [data-show-when="funded"] { display: none; }
   background: rgba(255, 77, 94, 0.13);
   color: var(--loss);
 }
+.badge.long  { background: rgba(34, 209, 119, 0.15); color: var(--profit); }
+.badge.short { background: rgba(255, 77, 94, 0.13); color: var(--loss); }
+.badge.open  { background: rgba(78, 168, 255, 0.13); color: var(--info); }
+.badge.closed { background: var(--bg-hover); color: var(--text-muted); }
+
+/* Filter bar above lists */
+.filter-bar {
+  display: flex;
+  gap: var(--sp-3);
+  flex-wrap: wrap;
+  align-items: flex-end;
+  margin-bottom: var(--sp-4);
+  padding: var(--sp-3);
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+}
+.filter-bar .form-row { margin-bottom: 0; min-width: 140px; }
+
+/* Live preview card inside trade form */
+.preview {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  padding: var(--sp-3);
+  margin: var(--sp-3) 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: var(--sp-3);
+}
+.preview .stat { background: transparent; border: none; padding: 0; }
+.preview .stat-value { font-size: var(--fs-lg); }
+
+/* Number cells right-aligned in tables */
+td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+
+/* Inline tick info under instrument picker */
+.tick-info {
+  font-size: var(--fs-xs);
+  color: var(--text-dim);
+  margin-top: 4px;
+}
 
 /* Stat tiles */
 .stats-grid {
