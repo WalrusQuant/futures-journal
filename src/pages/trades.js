@@ -7,6 +7,9 @@ import {
 } from "../lib/trades.js";
 import { getPlan, setPlanStatus } from "../lib/plans.js";
 import { listAccounts } from "../lib/accounts.js";
+import { listTags, getTradeTags, setTradeTags } from "../lib/tags.js";
+import { mountTagPicker } from "../components/tag-picker.js";
+import { mountImageGallery } from "../components/image-gallery.js";
 import {
   listInstruments,
   getInstrument,
@@ -187,7 +190,9 @@ function rowHtml(t) {
     <tr class="clickable" data-id="${t.id}">
       <td>${fmtDateTime(t.entry_time)}</td>
       <td>${esc(t.account_name)}</td>
-      <td><strong>${esc(t.instrument)}</strong></td>
+      <td><strong>${esc(t.instrument)}</strong>
+        ${t.tag_names ? `<div class="trade-row-tags">${renderRowTags(t)}</div>` : ""}
+      </td>
       <td><span class="badge ${t.direction}">${t.direction}</span></td>
       <td class="num">${t.contracts}</td>
       <td class="num">${fmtNumber(t.entry_price, 4)}</td>
@@ -205,10 +210,26 @@ function rowHtml(t) {
   `;
 }
 
+function renderRowTags(t) {
+  // tag_names and tag_colors come back from listTrades as joined strings.
+  if (!t.tag_names) return "";
+  const names = t.tag_names.split("|");
+  const colors = (t.tag_colors || "").split("|");
+  return names
+    .map(
+      (n, i) =>
+        `<span class="tag-static" style="--tag-color:${esc(
+          colors[i] || "#94a3b8"
+        )}">${esc(n)}</span>`
+    )
+    .join("");
+}
+
 // ---------- DETAIL ----------
 
 export async function renderDetail({ id }) {
   const trade = await getTrade(id);
+  const tradeTags = trade ? await getTradeTags(id) : [];
   if (!trade) {
     return {
       html: `
@@ -333,6 +354,21 @@ export async function renderDetail({ id }) {
           }
         </dl>
         ${
+          tradeTags.length
+            ? `<div style="margin-top:var(--sp-3);padding-top:var(--sp-3);border-top:1px solid var(--border)">
+                <div class="form-label" style="margin-bottom:var(--sp-2)">Tags</div>
+                <div>${tradeTags
+                  .map(
+                    (t) =>
+                      `<span class="tag-static" style="--tag-color:${esc(
+                        t.color
+                      )}">${esc(t.name)}</span>`
+                  )
+                  .join("")}</div>
+              </div>`
+            : ""
+        }
+        ${
           trade.notes
             ? `<div style="margin-top:var(--sp-3);padding-top:var(--sp-3);border-top:1px solid var(--border)">
                 <div class="form-label" style="margin-bottom:var(--sp-2)">Notes</div>
@@ -342,6 +378,8 @@ export async function renderDetail({ id }) {
         }
       </div>
     </div>
+
+    <div class="section" id="image-section"></div>
   `;
 
   function mount(pageEl) {
@@ -349,6 +387,9 @@ export async function renderDetail({ id }) {
       if (!confirm("Delete this trade? This cannot be undone.")) return;
       await deleteTrade(trade.id);
       location.hash = "#/trades";
+    });
+    mountImageGallery(pageEl.querySelector("#image-section"), {
+      tradeId: trade.id,
     });
   }
 
@@ -558,6 +599,10 @@ export async function renderForm(params = {}) {
 
       <div class="card">
         <div class="form-row">
+          <label>Tags</label>
+          <div id="tag-picker-mount"></div>
+        </div>
+        <div class="form-row">
           <label>Confidence (1–5)</label>
           <select name="confidence">
             <option value="">—</option>
@@ -589,11 +634,23 @@ export async function renderForm(params = {}) {
     </form>
   `;
 
+  // Tag data for the picker (loaded outside mount so we can await).
+  const allTags = await listTags();
+  const initialSelectedTagIds = isEdit
+    ? (await getTradeTags(trade.id)).map((t) => t.id)
+    : [];
+
   function mount(pageEl) {
     const form = pageEl.querySelector("#trade-form");
     const tickInfo = pageEl.querySelector("#tick-info");
     const previewEl = pageEl.querySelector("#preview");
     const errEl = pageEl.querySelector(".form-error");
+    const tagMountEl = pageEl.querySelector("#tag-picker-mount");
+    const tagPicker = mountTagPicker(
+      tagMountEl,
+      allTags,
+      initialSelectedTagIds
+    );
 
     function currentInstrument() {
       const sym = form.elements.instrument.value;
@@ -708,17 +765,19 @@ export async function renderForm(params = {}) {
         return;
       }
       try {
+        let savedId;
         if (isEdit) {
           await updateTrade(trade.id, draft);
-          location.hash = `#/trades/${trade.id}`;
+          savedId = trade.id;
         } else {
           if (sourcePlan) draft.plan_id = sourcePlan.id;
-          const id = await createTrade(draft);
+          savedId = await createTrade(draft);
           if (sourcePlan) {
-            await setPlanStatus(sourcePlan.id, "taken", id);
+            await setPlanStatus(sourcePlan.id, "taken", savedId);
           }
-          location.hash = `#/trades/${id}`;
         }
+        await setTradeTags(savedId, tagPicker.getSelected());
+        location.hash = `#/trades/${savedId}`;
       } catch (err) {
         console.error(err);
         errEl.textContent = String(err.message || err);

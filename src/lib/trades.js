@@ -31,7 +31,13 @@ export async function listTrades(filters = {}) {
     params.push(filters.to);
   }
   const sql = `
-    SELECT t.*, a.name AS account_name
+    SELECT t.*, a.name AS account_name,
+      (SELECT GROUP_CONCAT(tg.name, '|')
+         FROM trade_tags tt JOIN tags tg ON tg.id = tt.tag_id
+         WHERE tt.trade_id = t.id) AS tag_names,
+      (SELECT GROUP_CONCAT(tg.color, '|')
+         FROM trade_tags tt JOIN tags tg ON tg.id = tt.tag_id
+         WHERE tt.trade_id = t.id) AS tag_colors
     FROM trades t
     JOIN accounts a ON a.id = t.account_id
     ${where.length ? "WHERE " + where.join(" AND ") : ""}

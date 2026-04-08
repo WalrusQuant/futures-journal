@@ -20,6 +20,7 @@ import {
   validatePlanShape,
 } from "../lib/calc.js";
 import { fmtMoney, fmtNumber, fmtDate, esc } from "../lib/format.js";
+import { mountImageGallery } from "../components/image-gallery.js";
 import { refreshPage } from "../main.js";
 
 // ---------- LIST ----------
@@ -213,9 +214,14 @@ export async function renderDetail({ id }) {
         }
       </div>
     </div>
+
+    <div class="section" id="image-section"></div>
   `;
 
   function mount(pageEl) {
+    mountImageGallery(pageEl.querySelector("#image-section"), {
+      planId: plan.id,
+    });
     pageEl
       .querySelector("#btn-invalidate")
       ?.addEventListener("click", async () => {
