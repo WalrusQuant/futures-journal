@@ -135,6 +135,7 @@ export function groupByInstrument(trades) {
 }
 
 // Tag breakdown reads tag_names from the joined SELECT (pipe-delimited string).
+// Each row includes expectancy and avg R so tag-level edge is visible.
 export function groupByTag(trades) {
   const map = new Map();
   for (const t of trades) {
@@ -150,16 +151,186 @@ export function groupByTag(trades) {
         pnl: 0,
         count: 0,
         wins: 0,
+        losses: 0,
+        grossWin: 0,
+        grossLoss: 0,
+        rSum: 0,
+        rCount: 0,
       };
       cur.pnl += t.pnl_dollars;
       cur.count += 1;
-      if (t.pnl_dollars > 0) cur.wins += 1;
+      if (t.pnl_dollars > 0) {
+        cur.wins += 1;
+        cur.grossWin += t.pnl_dollars;
+      } else if (t.pnl_dollars < 0) {
+        cur.losses += 1;
+        cur.grossLoss += Math.abs(t.pnl_dollars);
+      }
+      if (t.r_multiple != null && Number.isFinite(t.r_multiple)) {
+        cur.rSum += t.r_multiple;
+        cur.rCount += 1;
+      }
       map.set(key, cur);
     });
   }
   return Array.from(map.values())
+    .map((v) => {
+      const winRate = v.count ? (v.wins / v.count) * 100 : 0;
+      const avgWin = v.wins ? v.grossWin / v.wins : 0;
+      const avgLoss = v.losses ? v.grossLoss / v.losses : 0;
+      const wr = winRate / 100;
+      const expectancy = wr * avgWin - (1 - wr) * avgLoss;
+      const avgR = v.rCount ? v.rSum / v.rCount : 0;
+      return { ...v, winRate, expectancy, avgR };
+    })
+    .sort((a, b) => b.pnl - a.pnl);
+}
+
+// Per-account breakdown (same shape as groupByInstrument). Requires the
+// joined SELECT to include `account_name` — listTrades already does.
+export function groupByAccount(trades) {
+  const map = new Map();
+  for (const t of trades) {
+    if (t.status !== "closed" || t.pnl_dollars == null) continue;
+    const key = t.account_id;
+    const cur = map.get(key) || {
+      account_id: t.account_id,
+      account_name: t.account_name || `#${t.account_id}`,
+      pnl: 0,
+      count: 0,
+      wins: 0,
+    };
+    cur.pnl += t.pnl_dollars;
+    cur.count += 1;
+    if (t.pnl_dollars > 0) cur.wins += 1;
+    map.set(key, cur);
+  }
+  return Array.from(map.values())
     .map((v) => ({ ...v, winRate: v.count ? (v.wins / v.count) * 100 : 0 }))
     .sort((a, b) => b.pnl - a.pnl);
+}
+
+// Bucket by hour-of-day of entry_time (0–23). Returns a fixed 24-item array
+// so the bar chart has a stable x-axis even if some hours have no trades.
+export function groupByHourOfDay(trades) {
+  const buckets = Array.from({ length: 24 }, (_, h) => ({
+    hour: h,
+    label: String(h).padStart(2, "0"),
+    pnl: 0,
+    count: 0,
+    wins: 0,
+  }));
+  for (const t of trades) {
+    if (t.status !== "closed" || t.pnl_dollars == null || !t.entry_time)
+      continue;
+    const h = new Date(t.entry_time).getHours();
+    const b = buckets[h];
+    b.pnl += t.pnl_dollars;
+    b.count += 1;
+    if (t.pnl_dollars > 0) b.wins += 1;
+  }
+  return buckets.map((b) => ({
+    ...b,
+    winRate: b.count ? (b.wins / b.count) * 100 : 0,
+  }));
+}
+
+// Bucket by day-of-week of entry_time (Mon–Fri only — futures don't trade
+// weekends, so Sat/Sun buckets would just be noise).
+export function groupByDayOfWeek(trades) {
+  const names = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+  const buckets = [1, 2, 3, 4, 5].map((d) => ({
+    day: d,
+    label: names[d],
+    pnl: 0,
+    count: 0,
+    wins: 0,
+  }));
+  const byIdx = new Map(buckets.map((b) => [b.day, b]));
+  for (const t of trades) {
+    if (t.status !== "closed" || t.pnl_dollars == null || !t.entry_time)
+      continue;
+    const d = new Date(t.entry_time).getDay();
+    const b = byIdx.get(d);
+    if (!b) continue; // weekend — skip
+    b.pnl += t.pnl_dollars;
+    b.count += 1;
+    if (t.pnl_dollars > 0) b.wins += 1;
+  }
+  return buckets.map((b) => ({
+    ...b,
+    winRate: b.count ? (b.wins / b.count) * 100 : 0,
+  }));
+}
+
+// Win/loss streak tracking. Order-sensitive: walks closed trades by
+// exit_time and tracks the current run and the longest seen so far.
+// Breakeven trades are treated as neutral and break any streak.
+export function computeStreaks(trades) {
+  const closed = trades
+    .filter((t) => t.status === "closed" && t.pnl_dollars != null && t.exit_time)
+    .slice()
+    .sort((a, b) => a.exit_time.localeCompare(b.exit_time));
+
+  let longestWin = 0;
+  let longestLoss = 0;
+  let currentDir = null; // "win" | "loss" | null
+  let currentLen = 0;
+
+  for (const t of closed) {
+    const outcome =
+      t.pnl_dollars > 0 ? "win" : t.pnl_dollars < 0 ? "loss" : null;
+    if (outcome == null) {
+      currentDir = null;
+      currentLen = 0;
+      continue;
+    }
+    if (outcome === currentDir) {
+      currentLen += 1;
+    } else {
+      currentDir = outcome;
+      currentLen = 1;
+    }
+    if (outcome === "win" && currentLen > longestWin) longestWin = currentLen;
+    if (outcome === "loss" && currentLen > longestLoss)
+      longestLoss = currentLen;
+  }
+
+  return {
+    longestWin,
+    longestLoss,
+    currentDirection: currentDir,
+    currentLength: currentLen,
+  };
+}
+
+// Review coverage: what % of closed trades have review_completed = 1.
+// Unreviewable (open) trades aren't counted in the denominator.
+export function reviewCoverage(trades) {
+  const closed = trades.filter((t) => t.status === "closed");
+  const reviewed = closed.filter((t) => t.review_completed);
+  return {
+    total: closed.length,
+    reviewed: reviewed.length,
+    pct: closed.length ? (reviewed.length / closed.length) * 100 : 0,
+  };
+}
+
+// Split trades into planned vs unplanned buckets and run the full summary
+// on each. "Planned" means the trade has a plan_id — i.e. it was taken from
+// a plan via the "Take plan" flow. Returns { planned, unplanned } where
+// each value is the same shape as summarizeTrades().
+export function groupByPlannedStatus(trades) {
+  const planned = [];
+  const unplanned = [];
+  for (const t of trades) {
+    if (t.plan_id != null) planned.push(t);
+    else unplanned.push(t);
+  }
+  return {
+    planned: summarizeTrades(planned),
+    unplanned: summarizeTrades(unplanned),
+  };
 }
 
 // Bin R-multiples for a histogram. Buckets: <-2, -2..-1, -1..0, 0..1, 1..2, 2..3, >3

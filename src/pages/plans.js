@@ -22,6 +22,7 @@ import {
 import { fmtMoney, fmtNumber, fmtDate, esc } from "../lib/format.js";
 import { mountImageGallery } from "../components/image-gallery.js";
 import { mountTagPicker } from "../components/tag-picker.js";
+import { confirmDialog } from "../components/modal.js";
 import { listTags, getPlanTags, setPlanTags } from "../lib/tags.js";
 import { getSetting, SETTING_KEYS } from "../lib/settings.js";
 import { refreshPage } from "../main.js";
@@ -272,7 +273,13 @@ export async function renderDetail({ id }) {
     pageEl
       .querySelector("#btn-delete")
       .addEventListener("click", async () => {
-        if (!confirm("Delete this plan?")) return;
+        const ok = await confirmDialog({
+          title: "Delete plan",
+          message: "Delete this plan? This cannot be undone.",
+          confirmLabel: "Delete",
+          danger: true,
+        });
+        if (!ok) return;
         await deletePlan(plan.id);
         location.hash = "#/plans";
       });

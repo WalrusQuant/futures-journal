@@ -22,6 +22,16 @@ export async function listTrades(filters = {}) {
     where.push("t.status = ?");
     params.push(filters.status);
   }
+  if (filters.needsReview) {
+    // "Needs review" implies closed; override any conflicting status filter.
+    where.push("t.status = 'closed'");
+    where.push("t.review_completed = 0");
+  }
+  if (filters.planned === "planned") {
+    where.push("t.plan_id IS NOT NULL");
+  } else if (filters.planned === "unplanned") {
+    where.push("t.plan_id IS NULL");
+  }
   if (filters.from) {
     where.push("t.entry_time >= ?");
     params.push(filters.from);
@@ -64,8 +74,8 @@ export async function createTrade(data) {
       account_id, instrument, direction, entry_time, entry_price,
       stop_price, target_price, contracts, exit_time, exit_price, fees,
       pnl_points, pnl_dollars, r_multiple, status, confidence, notes,
-      plan_id, created_at, updated_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      plan_id, risk_override, created_at, updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       data.account_id,
       data.instrument,
@@ -85,6 +95,7 @@ export async function createTrade(data) {
       data.confidence ?? null,
       data.notes || null,
       data.plan_id ?? null,
+      data.risk_override ?? null,
       now,
       now,
     ]
@@ -148,6 +159,85 @@ export async function deleteTrade(id) {
   );
   await exec("DELETE FROM trades WHERE id = ?", [id]);
   await recomputeBalance(existing.account_id);
+}
+
+// ---------- Review ----------
+
+export const EMOTIONAL_STATES = [
+  "calm",
+  "neutral",
+  "anxious",
+  "angry",
+  "overconfident",
+];
+
+// Save a structured post-trade review. Any field may be null — only
+// review_completed and reviewed_at are always set. Idempotent: safe to call
+// again to update an existing review.
+export async function setReview(tradeId, data) {
+  const now = new Date().toISOString();
+  await exec(
+    `UPDATE trades SET
+       review_completed = 1,
+       plan_followed    = ?,
+       exit_discipline  = ?,
+       emotional_state  = ?,
+       lessons          = ?,
+       reviewed_at      = ?
+     WHERE id = ?`,
+    [
+      data.plan_followed == null ? null : data.plan_followed ? 1 : 0,
+      data.exit_discipline ?? null,
+      data.emotional_state || null,
+      data.lessons || null,
+      now,
+      tradeId,
+    ]
+  );
+}
+
+// Mark a trade as "needs review again" — clears the flag without wiping the
+// stored review fields, so the user can re-review without losing context.
+export async function clearReview(tradeId) {
+  await exec(
+    `UPDATE trades SET review_completed = 0, reviewed_at = NULL WHERE id = ?`,
+    [tradeId]
+  );
+}
+
+// Closed trades that haven't been reviewed. Optionally scoped to an account.
+// Orders newest-first so the most recent unreviewed work floats to the top.
+export async function listTradesNeedingReview({ accountId, limit = null } = {}) {
+  const where = ["t.status = 'closed'", "t.review_completed = 0"];
+  const params = [];
+  if (accountId) {
+    where.push("t.account_id = ?");
+    params.push(accountId);
+  }
+  const lim = limit ? `LIMIT ${Number(limit)}` : "";
+  return query(
+    `SELECT t.*, a.name AS account_name
+       FROM trades t
+       JOIN accounts a ON a.id = t.account_id
+      WHERE ${where.join(" AND ")}
+      ORDER BY t.exit_time DESC, t.id DESC
+      ${lim}`,
+    params
+  );
+}
+
+export async function countTradesNeedingReview({ accountId } = {}) {
+  const where = ["status = 'closed'", "review_completed = 0"];
+  const params = [];
+  if (accountId) {
+    where.push("account_id = ?");
+    params.push(accountId);
+  }
+  const rows = await query(
+    `SELECT COUNT(*) AS n FROM trades WHERE ${where.join(" AND ")}`,
+    params
+  );
+  return rows[0]?.n || 0;
 }
 
 async function computePnLFields(trade) {

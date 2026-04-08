@@ -14,7 +14,7 @@ import {
   TX_TYPES,
 } from "../lib/accounts.js";
 import { fmtMoney, fmtDate, fmtDateTime, esc } from "../lib/format.js";
-import { openModal, closeModal } from "../components/modal.js";
+import { openModal, closeModal, confirmDialog } from "../components/modal.js";
 import { refreshPage } from "../main.js";
 
 // ---------- LIST ----------
@@ -293,7 +293,12 @@ export async function renderDetail({ id }) {
     pageEl
       .querySelector("#btn-archive-account")
       ?.addEventListener("click", async () => {
-        if (!confirm(`Archive ${account.name}?`)) return;
+        const ok = await confirmDialog({
+          title: "Archive account",
+          message: `Archive ${account.name}?\n\nIt will be hidden from the active list but its trades and history will be preserved.`,
+          confirmLabel: "Archive",
+        });
+        if (!ok) return;
         await archiveAccount(account.id);
         refreshPage();
       });
@@ -308,7 +313,13 @@ export async function renderDetail({ id }) {
       ?.addEventListener("click", () => openTransactionModal(account.id));
     pageEl.querySelectorAll("[data-tx-del]").forEach((btn) => {
       btn.addEventListener("click", async () => {
-        if (!confirm("Delete this transaction?")) return;
+        const ok = await confirmDialog({
+          title: "Delete transaction",
+          message: "Delete this transaction? The account balance will be recalculated.",
+          confirmLabel: "Delete",
+          danger: true,
+        });
+        if (!ok) return;
         await deleteTransaction(Number(btn.dataset.txDel));
         refreshPage();
       });

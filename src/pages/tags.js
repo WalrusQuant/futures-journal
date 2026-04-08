@@ -6,7 +6,7 @@ import {
   TAG_CATEGORIES,
   TAG_COLORS,
 } from "../lib/tags.js";
-import { openModal, closeModal } from "../components/modal.js";
+import { openModal, closeModal, confirmDialog } from "../components/modal.js";
 import { esc } from "../lib/format.js";
 import { refreshPage } from "../main.js";
 
@@ -58,7 +58,13 @@ export async function render() {
     pageEl.querySelectorAll("[data-del-tag]").forEach((btn) => {
       btn.addEventListener("click", async () => {
         const id = Number(btn.dataset.delTag);
-        if (!confirm("Delete this tag? It will be removed from all trades.")) return;
+        const ok = await confirmDialog({
+          title: "Delete tag",
+          message: "Delete this tag? It will be removed from all trades and plans.",
+          confirmLabel: "Delete",
+          danger: true,
+        });
+        if (!ok) return;
         await deleteTag(id);
         refreshPage();
       });

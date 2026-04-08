@@ -19,7 +19,7 @@ import {
   saveImageFile,
   deleteImageFile,
 } from "../lib/images.js";
-import { openModal } from "./modal.js";
+import { openModal, confirmDialog } from "./modal.js";
 import { esc } from "../lib/format.js";
 import { registerPageCleanup } from "../main.js";
 
@@ -126,7 +126,13 @@ export async function mountImageGallery(
         .querySelector(".image-thumb-delete")
         .addEventListener("click", async (e) => {
           e.stopPropagation();
-          if (!confirm("Delete this screenshot?")) return;
+          const ok = await confirmDialog({
+            title: "Delete screenshot",
+            message: "Delete this screenshot? The file will be removed from disk.",
+            confirmLabel: "Delete",
+            danger: true,
+          });
+          if (!ok) return;
           if (pending) {
             const idx = Number(thumb.dataset.pendingIdx);
             await remove({ _idx: idx, filePath: thumb.dataset.path });

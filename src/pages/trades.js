@@ -4,12 +4,15 @@ import {
   createTrade,
   updateTrade,
   deleteTrade,
+  setReview,
+  EMOTIONAL_STATES,
 } from "../lib/trades.js";
 import { getPlan, setPlanStatus } from "../lib/plans.js";
 import { listAccounts } from "../lib/accounts.js";
 import { listTags, getTradeTags, setTradeTags } from "../lib/tags.js";
 import { mountTagPicker } from "../components/tag-picker.js";
 import { mountImageGallery } from "../components/image-gallery.js";
+import { confirmDialog, openModal, closeModal } from "../components/modal.js";
 import { getSetting, SETTING_KEYS } from "../lib/settings.js";
 import {
   listInstruments,
@@ -24,6 +27,7 @@ import {
   plannedRR,
   validateTradeShape,
 } from "../lib/calc.js";
+import { assessDraft } from "../lib/risk.js";
 import {
   fmtMoney,
   fmtNumber,
@@ -96,6 +100,15 @@ export async function renderList() {
         <label>To</label>
         <input type="date" name="to" value="${filters.toDate || ""}">
       </div>
+      <div class="form-row">
+        <label>&nbsp;</label>
+        <label style="display:flex;align-items:center;gap:6px;font-size:var(--fs-sm);text-transform:none;letter-spacing:normal;color:var(--text)">
+          <input type="checkbox" name="needs_review" value="1" ${
+            filters.needsReview ? "checked" : ""
+          }>
+          Needs review only
+        </label>
+      </div>
       <div style="display:flex;gap:var(--sp-2)">
         <button type="submit" class="primary btn-sm">Apply</button>
         <button type="button" class="btn-sm" id="btn-clear">Clear</button>
@@ -146,6 +159,7 @@ export async function renderList() {
         const v = fd.get(k);
         if (v) params.set(k, v);
       }
+      if (fd.get("needs_review") === "1") params.set("needs_review", "1");
       location.hash = "#/trades" + (params.toString() ? "?" + params : "");
     });
     pageEl.querySelector("#btn-clear").addEventListener("click", () => {
@@ -170,6 +184,7 @@ function readFilters() {
   if (sp.get("account_id")) out.account_id = Number(sp.get("account_id"));
   if (sp.get("instrument")) out.instrument = sp.get("instrument");
   if (sp.get("status")) out.status = sp.get("status");
+  if (sp.get("needs_review") === "1") out.needsReview = true;
   if (sp.get("from")) {
     out.fromDate = sp.get("from");
     out.from = new Date(sp.get("from") + "T00:00:00").toISOString();
@@ -253,6 +268,9 @@ export async function renderDetail({ id }) {
       ? "loss"
       : "";
 
+  const needsReview =
+    trade.status === "closed" && !trade.review_completed;
+
   const html = `
     <div class="page-header">
       <div>
@@ -260,6 +278,13 @@ export async function renderDetail({ id }) {
         <h1>${esc(trade.instrument)}
           <span class="badge ${trade.direction}" style="margin-left:8px;vertical-align:middle">${trade.direction}</span>
           <span class="badge ${trade.status}" style="margin-left:4px;vertical-align:middle">${trade.status}</span>
+          ${
+            needsReview
+              ? `<span class="badge badge-needs-review" style="margin-left:4px;vertical-align:middle">needs review</span>`
+              : trade.review_completed
+              ? `<span class="badge badge-reviewed" style="margin-left:4px;vertical-align:middle">reviewed</span>`
+              : ""
+          }
         </h1>
         <div class="muted" style="margin-top:4px">
           ${esc(trade.account_name)} · ${fmtDateTime(trade.entry_time)}
@@ -377,24 +402,234 @@ export async function renderDetail({ id }) {
               </div>`
             : ""
         }
+        ${
+          trade.risk_override
+            ? `<div style="margin-top:var(--sp-3);padding-top:var(--sp-3);border-top:1px solid var(--border)">
+                <div class="form-label" style="margin-bottom:var(--sp-2);color:var(--loss)">⚠ Risk override recorded</div>
+                <div style="white-space:pre-wrap">${esc(trade.risk_override)}</div>
+              </div>`
+            : ""
+        }
       </div>
     </div>
+
+    ${
+      trade.status === "closed"
+        ? `<div class="section">
+            <div class="section-header"><h2>Review</h2></div>
+            <div id="review-card"></div>
+           </div>`
+        : ""
+    }
 
     <div class="section" id="image-section"></div>
   `;
 
   function mount(pageEl) {
     pageEl.querySelector("#btn-delete").addEventListener("click", async () => {
-      if (!confirm("Delete this trade? This cannot be undone.")) return;
+      const ok = await confirmDialog({
+        title: "Delete trade",
+        message: "Delete this trade? This cannot be undone.",
+        confirmLabel: "Delete",
+        danger: true,
+      });
+      if (!ok) return;
       await deleteTrade(trade.id);
       location.hash = "#/trades";
     });
     mountImageGallery(pageEl.querySelector("#image-section"), {
       tradeId: trade.id,
     });
+
+    const reviewCard = pageEl.querySelector("#review-card");
+    if (reviewCard) {
+      // Local working copy of the trade so the card can re-render without
+      // a full page refresh after save.
+      let localTrade = { ...trade };
+      let editing = !localTrade.review_completed;
+
+      function paint() {
+        reviewCard.innerHTML = editing
+          ? renderReviewForm(localTrade)
+          : renderReviewSummary(localTrade);
+        wire();
+      }
+
+      function wire() {
+        const form = reviewCard.querySelector("#review-form");
+        if (form) {
+          form.addEventListener("submit", async (e) => {
+            e.preventDefault();
+            const fd = new FormData(form);
+            const pf = fd.get("plan_followed");
+            const data = {
+              plan_followed:
+                pf === "yes" ? true : pf === "no" ? false : null,
+              exit_discipline: fd.get("exit_discipline")
+                ? Number(fd.get("exit_discipline"))
+                : null,
+              emotional_state: fd.get("emotional_state") || null,
+              lessons: (fd.get("lessons") || "").trim() || null,
+            };
+            try {
+              await setReview(trade.id, data);
+              // Reflect saved state locally.
+              localTrade = {
+                ...localTrade,
+                ...data,
+                review_completed: 1,
+                reviewed_at: new Date().toISOString(),
+              };
+              editing = false;
+              paint();
+              // Also update the header badge without a full reload.
+              const header = pageEl.querySelector(".page-header h1");
+              if (header) {
+                const needsBadge = header.querySelector(".badge-needs-review");
+                if (needsBadge) {
+                  needsBadge.classList.remove("badge-needs-review");
+                  needsBadge.classList.add("badge-reviewed");
+                  needsBadge.textContent = "reviewed";
+                }
+              }
+            } catch (err) {
+              console.error("review save failed:", err);
+              const errEl = reviewCard.querySelector(".review-error");
+              if (errEl) errEl.textContent = String(err.message || err);
+            }
+          });
+        }
+        const editBtn = reviewCard.querySelector("#btn-edit-review");
+        if (editBtn) {
+          editBtn.addEventListener("click", () => {
+            editing = true;
+            paint();
+          });
+        }
+      }
+
+      paint();
+    }
   }
 
   return { html, mount };
+}
+
+function renderReviewForm(t) {
+  const pf = t.plan_followed;
+  const ed = t.exit_discipline;
+  const es = t.emotional_state;
+  const stateOpts = [""]
+    .concat(EMOTIONAL_STATES)
+    .map(
+      (s) =>
+        `<option value="${s}"${es === s ? " selected" : ""}>${
+          s ? s.charAt(0).toUpperCase() + s.slice(1) : "—"
+        }</option>`
+    )
+    .join("");
+  const edOpts = [""]
+    .concat([1, 2, 3, 4, 5])
+    .map(
+      (n) =>
+        `<option value="${n}"${
+          ed != null && Number(ed) === Number(n) ? " selected" : ""
+        }>${n || "—"}</option>`
+    )
+    .join("");
+  return `
+    <div class="card review-card">
+      ${
+        !t.review_completed
+          ? `<p class="muted" style="margin:0 0 var(--sp-3) 0">
+              Take 60 seconds to review the trade while it's fresh. This is how
+              a journal actually compounds.
+            </p>`
+          : ""
+      }
+      <form id="review-form">
+        <div class="form-grid">
+          <div class="form-row">
+            <label>Did you follow your plan?</label>
+            <div class="radio-group">
+              <label><input type="radio" name="plan_followed" value="yes" ${
+                pf === 1 || pf === true ? "checked" : ""
+              }> Yes</label>
+              <label><input type="radio" name="plan_followed" value="no" ${
+                pf === 0 || pf === false ? "checked" : ""
+              }> No</label>
+              <label><input type="radio" name="plan_followed" value="" ${
+                pf == null ? "checked" : ""
+              }> N/A</label>
+            </div>
+          </div>
+          <div class="form-row">
+            <label>Exit discipline (1–5)</label>
+            <select name="exit_discipline">${edOpts}</select>
+            <div class="help">1 = panic / impulse, 5 = textbook execution.</div>
+          </div>
+          <div class="form-row">
+            <label>Emotional state</label>
+            <select name="emotional_state">${stateOpts}</select>
+          </div>
+        </div>
+        <div class="form-row">
+          <label>Lessons</label>
+          <textarea name="lessons" rows="4" placeholder="What did you learn? What would you do differently next time?">${esc(
+            t.lessons || ""
+          )}</textarea>
+        </div>
+        <div class="review-error form-error"></div>
+        <div class="form-actions">
+          <button type="submit" class="primary">
+            ${t.review_completed ? "Save review" : "Mark reviewed"}
+          </button>
+        </div>
+      </form>
+    </div>
+  `;
+}
+
+function renderReviewSummary(t) {
+  const pfLabel =
+    t.plan_followed == null
+      ? `<span class="dim">—</span>`
+      : t.plan_followed
+      ? `<span class="profit">Yes</span>`
+      : `<span class="loss">No</span>`;
+  const reviewed = t.reviewed_at ? fmtDateTime(t.reviewed_at) : "";
+  return `
+    <div class="card review-card">
+      <div class="section-header" style="margin-bottom:var(--sp-2)">
+        <div class="dim" style="font-size:var(--fs-sm)">Reviewed ${esc(
+          reviewed
+        )}</div>
+        <button id="btn-edit-review" class="btn-sm">Edit review</button>
+      </div>
+      <dl class="kv">
+        <dt>Plan followed</dt><dd>${pfLabel}</dd>
+        <dt>Exit discipline</dt>
+        <dd>${t.exit_discipline != null ? t.exit_discipline + " / 5" : "—"}</dd>
+        <dt>Emotional state</dt>
+        <dd>${
+          t.emotional_state
+            ? esc(
+                t.emotional_state.charAt(0).toUpperCase() +
+                  t.emotional_state.slice(1)
+              )
+            : "—"
+        }</dd>
+      </dl>
+      ${
+        t.lessons
+          ? `<div style="margin-top:var(--sp-3);padding-top:var(--sp-3);border-top:1px solid var(--border)">
+              <div class="form-label" style="margin-bottom:var(--sp-2)">Lessons</div>
+              <div style="white-space:pre-wrap">${esc(t.lessons)}</div>
+            </div>`
+          : ""
+      }
+    </div>
+  `;
 }
 
 // ---------- FORM (new + edit) ----------
@@ -578,7 +813,9 @@ export async function renderForm(params = {}) {
         </div>
       </div>
 
+      <div id="unplanned-notice"></div>
       <div class="preview" id="preview"></div>
+      <div id="risk-panel"></div>
 
       <div class="card">
         <h3 style="margin-bottom:var(--sp-3)">Exit (leave blank if still open)</h3>
@@ -647,6 +884,8 @@ export async function renderForm(params = {}) {
     const form = pageEl.querySelector("#trade-form");
     const tickInfo = pageEl.querySelector("#tick-info");
     const previewEl = pageEl.querySelector("#preview");
+    const riskPanelEl = pageEl.querySelector("#risk-panel");
+    const unplannedEl = pageEl.querySelector("#unplanned-notice");
     const errEl = pageEl.querySelector(".form-error");
     const tagMountEl = pageEl.querySelector("#tag-picker-mount");
     const tagPicker = mountTagPicker(
@@ -654,6 +893,12 @@ export async function renderForm(params = {}) {
       allTags,
       initialSelectedTagIds
     );
+
+    // Account cache for risk eval, keyed by id.
+    const accountById = new Map(accounts.map((a) => [a.id, a]));
+    // Latest risk assessment, updated by updateRiskPanel(). Submit reads this
+    // instead of re-running the async eval.
+    let latestAssessment = null;
 
     // Image gallery: pending for new trades, DB-backed for edits.
     let galleryHandle = null;
@@ -757,13 +1002,93 @@ export async function renderForm(params = {}) {
       previewEl.innerHTML = cells.join("");
     }
 
+    // Debounced async risk assessment. Only runs when the draft has enough
+    // shape to be evaluable (account + instrument + prices + contracts).
+    let riskTimer = null;
+    let riskSeq = 0;
+    function updateRiskPanel() {
+      if (riskTimer) clearTimeout(riskTimer);
+      riskTimer = setTimeout(async () => {
+        const draft = readDraft();
+        const account = accountById.get(draft.account_id);
+        const inst = currentInstrument();
+        // Can't evaluate yet — clear any stale output.
+        if (
+          !account ||
+          !inst ||
+          !Number.isFinite(draft.entry_price) ||
+          !Number.isFinite(draft.stop_price) ||
+          !Number.isInteger(draft.contracts) ||
+          draft.contracts < 1
+        ) {
+          latestAssessment = null;
+          riskPanelEl.innerHTML = "";
+          return;
+        }
+        // Skip risk eval when editing a trade that's already closed — the
+        // guardrails are a pre-trade concept.
+        if (isEdit && trade.status === "closed") {
+          latestAssessment = null;
+          riskPanelEl.innerHTML = "";
+          return;
+        }
+        const mySeq = ++riskSeq;
+        try {
+          const assessment = await assessDraft({
+            account,
+            instrument: inst,
+            draft,
+            excludeTradeId: isEdit ? trade.id : null,
+          });
+          // Discard stale results if the user kept typing.
+          if (mySeq !== riskSeq) return;
+          latestAssessment = assessment;
+          riskPanelEl.innerHTML = renderRiskPanel(assessment, account);
+        } catch (err) {
+          console.error("risk assessment failed:", err);
+          latestAssessment = null;
+          riskPanelEl.innerHTML = "";
+        }
+      }, 120);
+    }
+
+    // Soft amber nudge when logging an unplanned trade on a funded account.
+    // Non-blocking — just a visible reminder that discipline starts with
+    // having a plan. Hidden for edits, "Take plan" flows, and cash accounts.
+    function updateUnplannedNotice() {
+      if (isEdit || sourcePlan) {
+        unplannedEl.innerHTML = "";
+        return;
+      }
+      const draft = readDraft();
+      const account = accountById.get(draft.account_id);
+      if (!account || account.type !== "funded") {
+        unplannedEl.innerHTML = "";
+        return;
+      }
+      unplannedEl.innerHTML = `
+        <div class="card unplanned-notice">
+          <strong>⚠ Logging an unplanned trade</strong>
+          <div class="dim" style="font-size:var(--fs-sm);margin-top:4px">
+            This is a funded account. Consider
+            <a href="#/plans/new">writing a plan first</a> —
+            planned trades give you a reference point when things go sideways.
+          </div>
+        </div>
+      `;
+    }
+
     form.addEventListener("input", () => {
       updateTickInfo();
       updatePreview();
+      updateRiskPanel();
+      updateUnplannedNotice();
     });
     form.addEventListener("change", () => {
       updateTickInfo();
       updatePreview();
+      updateRiskPanel();
+      updateUnplannedNotice();
     });
 
     form.addEventListener("submit", async (e) => {
@@ -776,6 +1101,33 @@ export async function renderForm(params = {}) {
         errEl.textContent = err;
         return;
       }
+
+      // Pre-trade risk check. Only blocks on new trades or when editing an
+      // open trade (closed-trade edits skip guardrails in updateRiskPanel).
+      if (!(isEdit && trade.status === "closed")) {
+        // Make sure we have an up-to-date assessment. If the user typed fast,
+        // the debounced one might be stale or not yet populated.
+        const account = accountById.get(draft.account_id);
+        const inst = currentInstrument();
+        if (account && inst) {
+          try {
+            latestAssessment = await assessDraft({
+              account,
+              instrument: inst,
+              draft,
+              excludeTradeId: isEdit ? trade.id : null,
+            });
+          } catch (assessErr) {
+            console.error("final risk assessment failed:", assessErr);
+          }
+        }
+        if (latestAssessment && latestAssessment.blockers.length > 0) {
+          const override = await promptRiskOverride(latestAssessment);
+          if (!override.proceed) return;
+          draft.risk_override = override.reason;
+        }
+      }
+
       try {
         let savedId;
         if (isEdit) {
@@ -801,9 +1153,180 @@ export async function renderForm(params = {}) {
 
     updateTickInfo();
     updatePreview();
+    updateRiskPanel();
+    updateUnplannedNotice();
   }
 
   return { html, mount };
+}
+
+// Renders the risk budget card that sits under the trade form preview.
+// Shows daily P&L use, open exposure, and any blockers/warnings.
+function renderRiskPanel(assessment, account) {
+  const c = assessment.computed;
+  const hasDll = c.dailyLossLimit != null && c.dailyLossLimit > 0;
+
+  // Daily budget used: absolute value of negative P&L plus all open-risk
+  // worst-case, as a % of the daily loss limit.
+  let budgetBar = "";
+  if (hasDll) {
+    const usedBase = Math.max(0, -c.dailyPnl) + c.openRisk;
+    const withProposed = usedBase + c.proposedRisk;
+    const pctBase = Math.min(100, (usedBase / c.dailyLossLimit) * 100);
+    const pctWith = Math.min(100, (withProposed / c.dailyLossLimit) * 100);
+    const overBudget = withProposed > c.dailyLossLimit;
+    const barColor = overBudget
+      ? "var(--loss)"
+      : pctWith > 80
+      ? "var(--warn, #f0b429)"
+      : "var(--profit)";
+    budgetBar = `
+      <div class="risk-budget">
+        <div class="risk-budget-label">
+          <span>Daily loss budget</span>
+          <span class="${overBudget ? "loss" : ""}">
+            ${fmtMoney(withProposed)} of ${fmtMoney(c.dailyLossLimit)}
+            <span class="dim">(${pctWith.toFixed(0)}%)</span>
+          </span>
+        </div>
+        <div class="risk-budget-track" style="position:relative;height:8px;background:var(--border);border-radius:4px;overflow:hidden;margin-top:4px">
+          <div style="position:absolute;inset:0 auto 0 0;width:${pctBase}%;background:var(--border-strong, #475569)"></div>
+          <div style="position:absolute;inset:0 auto 0 0;width:${pctWith}%;background:${barColor};opacity:0.6"></div>
+        </div>
+      </div>
+    `;
+  }
+
+  const stats = `
+    <div class="risk-stats">
+      <div>
+        <span class="dim">Today realized</span>
+        <strong class="${c.dailyPnl < 0 ? "loss" : c.dailyPnl > 0 ? "profit" : ""}">
+          ${fmtMoney(c.dailyPnl, { signed: true })}
+        </strong>
+      </div>
+      <div>
+        <span class="dim">Open risk</span>
+        <strong>${fmtMoney(c.openRisk)}</strong>
+        <span class="dim">(${c.openContracts} ct)</span>
+      </div>
+      <div>
+        <span class="dim">This trade</span>
+        <strong>${fmtMoney(c.proposedRisk)}</strong>
+        <span class="dim">(${c.proposedContracts} ct)</span>
+      </div>
+    </div>
+  `;
+
+  const issueItems = (items, cls) =>
+    items
+      .map(
+        (i) => `
+          <li class="${cls}">
+            <strong>${esc(i.message)}</strong>
+            ${i.detail ? `<div class="dim" style="font-size:var(--fs-xs)">${esc(i.detail)}</div>` : ""}
+          </li>
+        `
+      )
+      .join("");
+
+  const blockers = assessment.blockers.length
+    ? `<ul class="risk-issues">${issueItems(assessment.blockers, "risk-blocker")}</ul>`
+    : "";
+  const warnings = assessment.warnings.length
+    ? `<ul class="risk-issues">${issueItems(assessment.warnings, "risk-warning")}</ul>`
+    : "";
+
+  const tone =
+    assessment.blockers.length > 0
+      ? "danger"
+      : assessment.warnings.length > 0
+      ? "warn"
+      : "ok";
+
+  return `
+    <div class="card risk-panel risk-panel-${tone}">
+      <div class="risk-panel-header">
+        <strong>Risk check</strong>
+        <span class="dim">${esc(account.name)}</span>
+      </div>
+      ${budgetBar}
+      ${stats}
+      ${blockers}
+      ${warnings}
+    </div>
+  `;
+}
+
+// Promise-based override modal for blocked trades. Returns
+// { proceed: bool, reason: string|null }.
+function promptRiskOverride(assessment) {
+  return new Promise((resolve) => {
+    let settled = false;
+    const finish = (result) => {
+      if (settled) return;
+      settled = true;
+      resolve(result);
+      closeModal();
+    };
+
+    const wrap = document.createElement("div");
+    const blockerList = assessment.blockers
+      .map(
+        (b) => `
+          <li class="risk-blocker">
+            <strong>${esc(b.message)}</strong>
+            ${b.detail ? `<div class="dim" style="font-size:var(--fs-xs)">${esc(b.detail)}</div>` : ""}
+          </li>
+        `
+      )
+      .join("");
+
+    wrap.innerHTML = `
+      <p style="margin:0 0 var(--sp-3) 0">
+        This trade would violate one or more of your account's risk rules.
+        You can override, but the reason will be recorded on the trade.
+      </p>
+      <ul class="risk-issues" style="margin:0 0 var(--sp-4) 0">${blockerList}</ul>
+      <label style="display:block;margin-bottom:var(--sp-2);font-size:var(--fs-sm);color:var(--text)">
+        <input type="checkbox" id="risk-ack" style="margin-right:6px">
+        I understand the risk and want to proceed anyway.
+      </label>
+      <div class="form-row">
+        <label>Reason (optional, but recommended)</label>
+        <textarea id="risk-reason" rows="3" placeholder="Why are you overriding? e.g. 'High-conviction setup, smaller size than usual.'"></textarea>
+      </div>
+      <div class="form-actions" style="justify-content:flex-end;gap:var(--sp-2);margin-top:var(--sp-3)">
+        <button type="button" id="risk-cancel">Cancel</button>
+        <button type="button" id="risk-proceed" class="btn-danger" disabled>Override and log trade</button>
+      </div>
+    `;
+
+    const ack = wrap.querySelector("#risk-ack");
+    const reason = wrap.querySelector("#risk-reason");
+    const proceedBtn = wrap.querySelector("#risk-proceed");
+    const cancelBtn = wrap.querySelector("#risk-cancel");
+
+    ack.addEventListener("change", () => {
+      proceedBtn.disabled = !ack.checked;
+    });
+    cancelBtn.addEventListener("click", () =>
+      finish({ proceed: false, reason: null })
+    );
+    proceedBtn.addEventListener("click", () => {
+      if (!ack.checked) return;
+      const txt = reason.value.trim();
+      finish({ proceed: true, reason: txt || "(no reason given)" });
+    });
+
+    openModal({
+      title: "Risk check failed",
+      body: wrap,
+      width: 520,
+      onClose: () => finish({ proceed: false, reason: null }),
+    });
+    cancelBtn.focus();
+  });
 }
 
 // ---------- helpers ----------

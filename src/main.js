@@ -9,6 +9,7 @@ import * as settings from "./pages/settings.js";
 import { makePlaceholder } from "./pages/placeholder.js";
 import { getSetting, SETTING_KEYS } from "./lib/settings.js";
 import { setPrivacyMode } from "./lib/format.js";
+import { autoBackup } from "./lib/backup.js";
 
 // Route table. Patterns may include :params, e.g. "/accounts/:id".
 // IMPORTANT: exact paths must precede their pattern siblings — the matcher
@@ -146,6 +147,13 @@ async function bootstrap() {
   } catch (err) {
     console.error("settings load failed:", err);
   }
+  // Fire-and-forget auto-backup. Idempotent — only writes once per day.
+  // Don't block the first render on this.
+  autoBackup()
+    .then((r) => {
+      if (r.created) console.info("auto-backup:", r.name);
+    })
+    .catch((err) => console.error("auto-backup failed:", err));
 }
 
 function mount() {

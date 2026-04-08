@@ -15,6 +15,13 @@ import {
   importTextFile,
   BACKUP_VERSION,
 } from "../lib/export.js";
+import {
+  listBackups,
+  manualBackup,
+  restoreFromBackup,
+  deleteBackup,
+} from "../lib/backup.js";
+import { confirmDialog } from "../components/modal.js";
 import { setPrivacyMode } from "../lib/format.js";
 import { refreshPage } from "../main.js";
 import { esc } from "../lib/format.js";
@@ -22,6 +29,12 @@ import { esc } from "../lib/format.js";
 export async function render() {
   const settings = await getAllSettings();
   const accounts = await listAccounts({ includeArchived: false });
+  let backups = [];
+  try {
+    backups = await listBackups();
+  } catch (err) {
+    console.error("listBackups failed:", err);
+  }
 
   const defaultAcctId = settings[SETTING_KEYS.defaultAccountId];
   const privacy = settings[SETTING_KEYS.privacyMode] === "1";
@@ -87,6 +100,19 @@ export async function render() {
         <button id="btn-import-json" class="btn-danger">Restore from JSON…</button>
       </div>
       <div id="export-status" class="help" style="margin-top:var(--sp-3);min-height:1em"></div>
+    </div>
+
+    <div class="card section">
+      <h3 style="margin-bottom:var(--sp-3)">Automatic backups</h3>
+      <p class="muted" style="margin-bottom:var(--sp-3)">
+        A backup runs automatically on launch, once per day. The most recent
+        14 daily backups are kept. Manual backups are never auto-pruned.
+      </p>
+      <div class="row-actions" style="flex-wrap:wrap;gap:var(--sp-2);margin-bottom:var(--sp-3)">
+        <button id="btn-backup-now" class="primary">Backup now</button>
+        <span id="backup-status" class="help" style="align-self:center"></span>
+      </div>
+      <div id="backup-list">${renderBackupList(backups)}</div>
     </div>
 
     <div class="card section">
@@ -178,14 +204,96 @@ export async function render() {
         }
       });
 
+    // --- Backup management ---
+    const backupStatus = pageEl.querySelector("#backup-status");
+    const backupList = pageEl.querySelector("#backup-list");
+
+    async function refreshBackupList() {
+      try {
+        const latest = await listBackups();
+        backupList.innerHTML = renderBackupList(latest);
+        wireBackupRows();
+      } catch (err) {
+        console.error(err);
+      }
+    }
+
+    function wireBackupRows() {
+      backupList.querySelectorAll("tr[data-path]").forEach((row) => {
+        const path = row.getAttribute("data-path");
+        const name = row.getAttribute("data-name");
+        row.querySelector(".btn-restore").addEventListener("click", async () => {
+          const ok = await confirmDialog({
+            title: "Restore backup",
+            message:
+              `Restore from ${name}?\n\n` +
+              "This will WIPE all existing data and reload from this backup. " +
+              "This cannot be undone.",
+            confirmLabel: "Restore",
+            danger: true,
+          });
+          if (!ok) return;
+          try {
+            backupStatus.textContent = "Restoring…";
+            await restoreFromBackup(path);
+            backupStatus.textContent = "Restore complete. Reloading…";
+            setTimeout(() => location.reload(), 500);
+          } catch (err) {
+            console.error(err);
+            backupStatus.textContent = "Restore failed: " + (err.message || err);
+          }
+        });
+        row.querySelector(".btn-delete").addEventListener("click", async () => {
+          const ok = await confirmDialog({
+            title: "Delete backup",
+            message:
+              `Permanently delete ${name}?\n\n` +
+              "This backup file will be removed from disk. " +
+              "This cannot be undone.",
+            confirmLabel: "Delete",
+            danger: true,
+          });
+          if (!ok) return;
+          try {
+            await deleteBackup(path);
+            backupStatus.textContent = `Deleted ${name}.`;
+            refreshBackupList();
+          } catch (err) {
+            console.error(err);
+            backupStatus.textContent = "Delete failed: " + (err.message || err);
+          }
+        });
+      });
+    }
+
+    wireBackupRows();
+
+    pageEl
+      .querySelector("#btn-backup-now")
+      .addEventListener("click", async () => {
+        try {
+          backupStatus.textContent = "Backing up…";
+          const r = await manualBackup();
+          backupStatus.textContent = `Saved ${r.name}.`;
+          refreshBackupList();
+        } catch (err) {
+          console.error(err);
+          backupStatus.textContent = "Backup failed: " + (err.message || err);
+        }
+      });
+
     pageEl
       .querySelector("#btn-import-json")
       .addEventListener("click", async () => {
-        const ok = confirm(
-          "Restore will WIPE all existing accounts, trades, plans, tags, and settings, " +
+        const ok = await confirmDialog({
+          title: "Restore from JSON",
+          message:
+            "Restore will WIPE all existing accounts, trades, plans, tags, and settings, " +
             "then load the backup. This cannot be undone.\n\n" +
-            "Continue?"
-        );
+            "Continue?",
+          confirmLabel: "Restore",
+          danger: true,
+        });
         if (!ok) return;
         try {
           status.textContent = "Reading backup…";
@@ -217,4 +325,43 @@ function dateStamp() {
     String(d.getMonth() + 1).padStart(2, "0") +
     String(d.getDate()).padStart(2, "0")
   );
+}
+
+function renderBackupList(backups) {
+  if (!backups.length) {
+    return `<p class="muted help">No backups yet. One will run on next launch.</p>`;
+  }
+  const rows = backups
+    .map((b) => {
+      const when = new Date(b.modified_ms).toLocaleString();
+      const kb = (b.size / 1024).toFixed(1);
+      const kind = b.name.startsWith("manual-") ? "manual" : "auto";
+      return `
+        <tr data-path="${esc(b.path)}" data-name="${esc(b.name)}">
+          <td class="dim">${kind}</td>
+          <td><code>${esc(b.name)}</code></td>
+          <td class="dim">${esc(when)}</td>
+          <td class="dim">${kb} KB</td>
+          <td style="text-align:right">
+            <button class="btn-restore">Restore</button>
+            <button class="btn-delete btn-danger">Delete</button>
+          </td>
+        </tr>
+      `;
+    })
+    .join("");
+  return `
+    <table>
+      <thead>
+        <tr>
+          <th>Kind</th>
+          <th>File</th>
+          <th>When</th>
+          <th>Size</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>${rows}</tbody>
+    </table>
+  `;
 }

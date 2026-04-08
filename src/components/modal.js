@@ -55,3 +55,68 @@ export function closeModal() {
     cb();
   }
 }
+
+// Promise-based confirm dialog. Tauri 2 webviews silently suppress native
+// window.confirm() on macOS (returns true without showing UI), so we have to
+// roll our own. Returns true if the user confirms, false otherwise.
+//
+// Usage:
+//   if (!(await confirmDialog({ message: "Delete this trade?" }))) return;
+export function confirmDialog({
+  title = "Confirm",
+  message,
+  confirmLabel = "Confirm",
+  cancelLabel = "Cancel",
+  danger = false,
+} = {}) {
+  return new Promise((resolve) => {
+    let settled = false;
+    const finish = (result) => {
+      if (settled) return;
+      settled = true;
+      resolve(result);
+      closeModal();
+    };
+
+    const wrap = document.createElement("div");
+    wrap.className = "confirm-body";
+    // Preserve newlines in the message.
+    const p = document.createElement("p");
+    p.style.whiteSpace = "pre-wrap";
+    p.style.margin = "0 0 var(--sp-4) 0";
+    p.textContent = message;
+    wrap.appendChild(p);
+
+    const actions = document.createElement("div");
+    actions.className = "form-actions";
+    actions.style.justifyContent = "flex-end";
+    actions.style.gap = "var(--sp-2)";
+
+    const cancelBtn = document.createElement("button");
+    cancelBtn.type = "button";
+    cancelBtn.textContent = cancelLabel;
+    cancelBtn.addEventListener("click", () => finish(false));
+
+    const confirmBtn = document.createElement("button");
+    confirmBtn.type = "button";
+    confirmBtn.textContent = confirmLabel;
+    confirmBtn.className = danger ? "btn-danger" : "primary";
+    confirmBtn.addEventListener("click", () => finish(true));
+
+    actions.appendChild(cancelBtn);
+    actions.appendChild(confirmBtn);
+    wrap.appendChild(actions);
+
+    openModal({
+      title,
+      body: wrap,
+      width: 440,
+      // If user closes via X or backdrop/Escape, treat as cancel.
+      onClose: () => finish(false),
+    });
+
+    // Focus the safe (cancel) button by default so Enter doesn't accidentally
+    // confirm a destructive action.
+    cancelBtn.focus();
+  });
+}

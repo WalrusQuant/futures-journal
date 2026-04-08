@@ -14,6 +14,101 @@ fn images_dir(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     Ok(dir)
 }
 
+fn backups_dir(app: &tauri::AppHandle) -> Result<PathBuf, String> {
+    let dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| e.to_string())?
+        .join("backups");
+    fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    Ok(dir)
+}
+
+#[derive(serde::Serialize)]
+struct BackupEntry {
+    name: String,
+    path: String,
+    size: u64,
+    modified_ms: u64,
+}
+
+#[tauri::command]
+async fn list_backups(app: tauri::AppHandle) -> Result<Vec<BackupEntry>, String> {
+    let dir = backups_dir(&app)?;
+    let mut entries = Vec::new();
+    for entry in fs::read_dir(&dir).map_err(|e| e.to_string())? {
+        let entry = entry.map_err(|e| e.to_string())?;
+        let path = entry.path();
+        if !path.is_file() {
+            continue;
+        }
+        let name = match path.file_name().and_then(|s| s.to_str()) {
+            Some(n) => n.to_string(),
+            None => continue,
+        };
+        if !name.ends_with(".json") {
+            continue;
+        }
+        let meta = entry.metadata().map_err(|e| e.to_string())?;
+        let modified_ms = meta
+            .modified()
+            .ok()
+            .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
+            .map(|d| d.as_millis() as u64)
+            .unwrap_or(0);
+        entries.push(BackupEntry {
+            name,
+            path: path.to_string_lossy().to_string(),
+            size: meta.len(),
+            modified_ms,
+        });
+    }
+    // Newest first.
+    entries.sort_by(|a, b| b.modified_ms.cmp(&a.modified_ms));
+    Ok(entries)
+}
+
+#[tauri::command]
+async fn write_backup(
+    app: tauri::AppHandle,
+    filename: String,
+    contents: String,
+) -> Result<String, String> {
+    // Disallow path traversal: filename must be a plain name, no separators.
+    if filename.contains('/') || filename.contains('\\') || filename.contains("..") {
+        return Err("invalid backup filename".into());
+    }
+    let dir = backups_dir(&app)?;
+    let dest = dir.join(&filename);
+    fs::write(&dest, contents).map_err(|e| e.to_string())?;
+    Ok(dest.to_string_lossy().to_string())
+}
+
+#[tauri::command]
+async fn read_backup(app: tauri::AppHandle, path: String) -> Result<String, String> {
+    let dir = backups_dir(&app)?;
+    let target = PathBuf::from(&path);
+    let canonical_target = target.canonicalize().map_err(|e| e.to_string())?;
+    let canonical_dir = dir.canonicalize().map_err(|e| e.to_string())?;
+    if !canonical_target.starts_with(&canonical_dir) {
+        return Err("refusing to read file outside backups directory".into());
+    }
+    fs::read_to_string(&canonical_target).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn delete_backup(app: tauri::AppHandle, path: String) -> Result<(), String> {
+    let dir = backups_dir(&app)?;
+    let target = PathBuf::from(&path);
+    let canonical_target = target.canonicalize().map_err(|e| e.to_string())?;
+    let canonical_dir = dir.canonicalize().map_err(|e| e.to_string())?;
+    if !canonical_target.starts_with(&canonical_dir) {
+        return Err("refusing to delete file outside backups directory".into());
+    }
+    fs::remove_file(&canonical_target).map_err(|e| e.to_string())?;
+    Ok(())
+}
+
 #[tauri::command]
 async fn save_image(app: tauri::AppHandle, source_path: String) -> Result<String, String> {
     let dir = images_dir(&app)?;
@@ -79,6 +174,18 @@ pub fn run() {
             sql: include_str!("../migrations/003_plan_tags.sql"),
             kind: MigrationKind::Up,
         },
+        Migration {
+            version: 4,
+            description: "add trade risk_override",
+            sql: include_str!("../migrations/004_trade_risk_override.sql"),
+            kind: MigrationKind::Up,
+        },
+        Migration {
+            version: 5,
+            description: "add trade review columns",
+            sql: include_str!("../migrations/005_trade_review.sql"),
+            kind: MigrationKind::Up,
+        },
     ];
 
     tauri::Builder::default()
@@ -93,7 +200,11 @@ pub fn run() {
             save_image,
             delete_image,
             write_text_file,
-            read_text_file
+            read_text_file,
+            list_backups,
+            write_backup,
+            read_backup,
+            delete_backup
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
