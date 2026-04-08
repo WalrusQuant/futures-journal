@@ -23,6 +23,7 @@ import { fmtMoney, fmtNumber, fmtDate, esc } from "../lib/format.js";
 import { mountImageGallery } from "../components/image-gallery.js";
 import { mountTagPicker } from "../components/tag-picker.js";
 import { listTags, getPlanTags, setPlanTags } from "../lib/tags.js";
+import { getSetting, SETTING_KEYS } from "../lib/settings.js";
 import { refreshPage } from "../main.js";
 
 // ---------- LIST ----------
@@ -317,8 +318,14 @@ export async function renderForm(params = {}) {
       };
     }
   } else {
+    const storedDefault = await getSetting(SETTING_KEYS.defaultAccountId);
+    let defaultId = accounts[0].id;
+    if (storedDefault) {
+      const found = accounts.find((a) => a.id === Number(storedDefault));
+      if (found) defaultId = found.id;
+    }
     plan = {
-      account_id: accounts[0].id,
+      account_id: defaultId,
       instrument: "ES",
       direction: "long",
       entry_price: "",

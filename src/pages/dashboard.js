@@ -10,6 +10,7 @@ import {
 } from "../lib/analytics.js";
 import { lineChart } from "../components/charts.js";
 import { fmtMoney, fmtDateTime, esc } from "../lib/format.js";
+import { getSetting, SETTING_KEYS } from "../lib/settings.js";
 
 export async function render() {
   const accounts = await listAccounts({ includeArchived: false });
@@ -17,8 +18,10 @@ export async function render() {
   const openTrades = allTrades.filter((t) => t.status === "open");
   const closedTrades = allTrades.filter((t) => t.status === "closed");
 
+  const weekStart = Number(await getSetting(SETTING_KEYS.weekStart, "0"));
+
   const today = dayBounds();
-  const week = weekBounds();
+  const week = weekBounds(new Date(), weekStart);
   const month = monthBounds();
 
   const inRange = (t, b) => {

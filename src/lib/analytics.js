@@ -203,10 +203,12 @@ export function dayBounds(date = new Date()) {
   return { start, end };
 }
 
-// Week starts Sunday (US convention).
-export function weekBounds(date = new Date()) {
+// Week starts on `weekStart` (0=Sunday, 1=Monday). Defaults to Sunday.
+export function weekBounds(date = new Date(), weekStart = 0) {
   const start = new Date(date);
-  start.setDate(start.getDate() - start.getDay());
+  const day = start.getDay();
+  const offset = (day - weekStart + 7) % 7;
+  start.setDate(start.getDate() - offset);
   start.setHours(0, 0, 0, 0);
   const end = new Date(start);
   end.setDate(end.getDate() + 6);

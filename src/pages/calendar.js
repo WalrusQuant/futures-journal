@@ -2,6 +2,7 @@ import { listTrades } from "../lib/trades.js";
 import { listAccounts } from "../lib/accounts.js";
 import { groupByDay, localDateKey } from "../lib/analytics.js";
 import { fmtMoney, esc } from "../lib/format.js";
+import { getSetting, SETTING_KEYS } from "../lib/settings.js";
 
 const MONTH_NAMES = [
   "January",
@@ -17,13 +18,16 @@ const MONTH_NAMES = [
   "November",
   "December",
 ];
-const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+const WEEKDAYS_SUN = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+const WEEKDAYS_MON = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
 export async function render() {
   const accounts = await listAccounts({ includeArchived: true });
   const filters = readFilters();
   const monthDate = filters.monthDate;
   const accountId = filters.account_id;
+  const weekStart = Number(await getSetting(SETTING_KEYS.weekStart, "0"));
+  const WEEKDAYS = weekStart === 1 ? WEEKDAYS_MON : WEEKDAYS_SUN;
 
   // Range: first to last day of the visible month.
   const monthStart = new Date(monthDate.getFullYear(), monthDate.getMonth(), 1);
@@ -123,7 +127,7 @@ export async function render() {
         ${WEEKDAYS.map((w) => `<div>${w}</div>`).join("")}
       </div>
       <div class="cal-grid">
-        ${renderGrid(monthDate, dayMap, accountId)}
+        ${renderGrid(monthDate, dayMap, accountId, weekStart)}
       </div>
     </div>
   `;
@@ -139,14 +143,16 @@ export async function render() {
   return { html, mount };
 }
 
-function renderGrid(monthDate, dayMap, accountId) {
+function renderGrid(monthDate, dayMap, accountId, weekStart = 0) {
   const year = monthDate.getFullYear();
   const month = monthDate.getMonth();
-  const firstDay = new Date(year, month, 1).getDay(); // 0=Sun
+  // Number of leading blank cells, given the chosen week start.
+  const firstDow = new Date(year, month, 1).getDay(); // 0=Sun
+  const leading = (firstDow - weekStart + 7) % 7;
   const daysInMonth = new Date(year, month + 1, 0).getDate();
 
   const cells = [];
-  for (let i = 0; i < firstDay; i++) {
+  for (let i = 0; i < leading; i++) {
     cells.push(`<div class="cal-cell empty"></div>`);
   }
   for (let d = 1; d <= daysInMonth; d++) {

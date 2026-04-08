@@ -1,7 +1,19 @@
 // Display formatters. All money is in USD for v1.
 
+// Privacy mode: when on, fmtMoney returns a redacted placeholder so the
+// user can take screenshots without showing dollar amounts. Toggled from
+// settings; main.js applies it on app boot.
+let _privacyMode = false;
+export function setPrivacyMode(on) {
+  _privacyMode = !!on;
+}
+export function isPrivacyMode() {
+  return _privacyMode;
+}
+
 export function fmtMoney(n, { signed = false } = {}) {
   if (n == null || Number.isNaN(n)) return "—";
+  if (_privacyMode) return "$•••";
   const sign = n < 0 ? "-" : signed ? "+" : "";
   const abs = Math.abs(n);
   return (

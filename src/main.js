@@ -5,7 +5,10 @@ import * as plans from "./pages/plans.js";
 import * as tags from "./pages/tags.js";
 import * as analytics from "./pages/analytics.js";
 import * as calendar from "./pages/calendar.js";
+import * as settings from "./pages/settings.js";
 import { makePlaceholder } from "./pages/placeholder.js";
+import { getSetting, SETTING_KEYS } from "./lib/settings.js";
+import { setPrivacyMode } from "./lib/format.js";
 
 // Route table. Patterns may include :params, e.g. "/accounts/:id".
 // IMPORTANT: exact paths must precede their pattern siblings — the matcher
@@ -25,7 +28,7 @@ const routes = [
   { path: "/analytics",         render: analytics.render },
   { path: "/calendar",          render: calendar.render },
   { path: "/tags",              render: tags.render },
-  { path: "/settings",          render: makePlaceholder("Settings",  "Phase 6") },
+  { path: "/settings",          render: settings.render },
 ];
 
 const navItems = [
@@ -135,10 +138,23 @@ export async function refreshPage() {
   }
 }
 
+async function bootstrap() {
+  // Apply persistent UI preferences before the first render.
+  try {
+    const privacy = await getSetting(SETTING_KEYS.privacyMode, "0");
+    setPrivacyMode(privacy === "1");
+  } catch (err) {
+    console.error("settings load failed:", err);
+  }
+}
+
 function mount() {
   document.getElementById("app").innerHTML = shellHtml();
   refreshPage();
 }
 
 window.addEventListener("hashchange", mount);
-window.addEventListener("DOMContentLoaded", mount);
+window.addEventListener("DOMContentLoaded", async () => {
+  await bootstrap();
+  mount();
+});

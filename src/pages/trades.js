@@ -10,6 +10,7 @@ import { listAccounts } from "../lib/accounts.js";
 import { listTags, getTradeTags, setTradeTags } from "../lib/tags.js";
 import { mountTagPicker } from "../components/tag-picker.js";
 import { mountImageGallery } from "../components/image-gallery.js";
+import { getSetting, SETTING_KEYS } from "../lib/settings.js";
 import {
   listInstruments,
   getInstrument,
@@ -449,7 +450,7 @@ export async function renderForm(params = {}) {
     };
   } else {
     trade = {
-      account_id: accounts[0].id,
+      account_id: await pickDefaultAccountId(accounts),
       instrument: "ES",
       direction: "long",
       entry_time: nowLocalIso(),
@@ -813,6 +814,15 @@ function readQueryParam(name) {
   if (q < 0) return null;
   const sp = new URLSearchParams(hash.slice(q + 1));
   return sp.get(name);
+}
+
+async function pickDefaultAccountId(accounts) {
+  const stored = await getSetting(SETTING_KEYS.defaultAccountId);
+  if (stored) {
+    const found = accounts.find((a) => a.id === Number(stored));
+    if (found) return found.id;
+  }
+  return accounts[0].id;
 }
 
 function nowLocalIso() {

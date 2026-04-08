@@ -34,6 +34,17 @@ async fn save_image(app: tauri::AppHandle, source_path: String) -> Result<String
 }
 
 #[tauri::command]
+async fn write_text_file(path: String, contents: String) -> Result<(), String> {
+    fs::write(&path, contents).map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+#[tauri::command]
+async fn read_text_file(path: String) -> Result<String, String> {
+    fs::read_to_string(&path).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 async fn delete_image(app: tauri::AppHandle, path: String) -> Result<(), String> {
     let dir = images_dir(&app)?;
     let target = PathBuf::from(&path);
@@ -78,7 +89,12 @@ pub fn run() {
                 .add_migrations("sqlite:futures-journal.db", migrations)
                 .build(),
         )
-        .invoke_handler(tauri::generate_handler![save_image, delete_image])
+        .invoke_handler(tauri::generate_handler![
+            save_image,
+            delete_image,
+            write_text_file,
+            read_text_file
+        ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
