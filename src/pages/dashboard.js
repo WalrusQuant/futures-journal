@@ -30,7 +30,81 @@ import { lineChart } from "../components/charts.js";
 import { fmtMoney, fmtNumber, fmtDateTime, esc } from "../lib/format.js";
 import { getSetting, SETTING_KEYS } from "../lib/settings.js";
 
-export async function render() {
+// Public entry point. Returns a synchronous skeleton shell so the page
+// paints instantly; the real data loads inside mount() and replaces the
+// shell. Loading is fan-out across many queries (4 parallel + risk fan-
+// out per account) and the first paint was previously blank for ~300–
+// 500ms — long enough to feel broken on a slow disk.
+export function render() {
+  return {
+    html: skeletonHtml(),
+    async mount(pageEl) {
+      try {
+        const built = await buildDashboard();
+        pageEl.innerHTML = built.html;
+        built.mount(pageEl);
+      } catch (err) {
+        console.error(err);
+        pageEl.innerHTML = `
+          <div class="page-header"><h1>Dashboard</h1></div>
+          <div class="card">
+            <p class="muted">Failed to load dashboard.</p>
+            <pre class="error-pre">${String((err && err.stack) || err)}</pre>
+          </div>
+        `;
+      }
+    },
+  };
+}
+
+function skeletonHtml() {
+  return `
+    <div class="page-header">
+      <div>
+        <div class="crumbs">Overview</div>
+        <h1>Dashboard</h1>
+      </div>
+    </div>
+    <div class="section today-panel">
+      <div class="section-header"><h2>Today</h2></div>
+      <div class="today-grid">
+        <div class="card skeleton skeleton-card"></div>
+        <div class="card skeleton skeleton-card"></div>
+        <div class="card skeleton skeleton-card"></div>
+      </div>
+    </div>
+    <div class="stats-grid">
+      <div class="stat skeleton skeleton-stat"></div>
+      <div class="stat skeleton skeleton-stat"></div>
+      <div class="stat skeleton skeleton-stat"></div>
+      <div class="stat skeleton skeleton-stat"></div>
+      <div class="stat skeleton skeleton-stat"></div>
+    </div>
+    <div class="section">
+      <div class="section-header"><h2>Equity curve</h2></div>
+      <div class="card"><div class="skeleton" style="height:220px"></div></div>
+    </div>
+    <div class="section dash-2col">
+      <div>
+        <div class="section-header"><h2>Recent trades</h2></div>
+        <div class="card">
+          <div class="skeleton skeleton-row"></div>
+          <div class="skeleton skeleton-row"></div>
+          <div class="skeleton skeleton-row"></div>
+        </div>
+      </div>
+      <div>
+        <div class="section-header"><h2>Active plans</h2></div>
+        <div class="card">
+          <div class="skeleton skeleton-row"></div>
+          <div class="skeleton skeleton-row"></div>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+async function buildDashboard() {
   // Accounts: active only for rendering the Today cards. Archived
   // accounts still feed the real-money ledger (historical fees from
   // failed combines) so we also need the full list for that.

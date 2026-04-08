@@ -21,6 +21,7 @@ import {
 } from "../lib/analytics.js";
 import { lineChart, barChart } from "../components/charts.js";
 import { fmtMoney, fmtNumber, esc } from "../lib/format.js";
+import { attachSort } from "../lib/table-sort.js";
 
 export async function render() {
   const accounts = await listAccounts({ includeArchived: true });
@@ -107,6 +108,9 @@ export async function render() {
     )
     .join("")}`;
 
+  const filterCount = countActiveFilters(filters);
+  const filtersActive = filterCount > 0;
+
   const html = `
     <div class="page-header">
       <div>
@@ -118,6 +122,15 @@ export async function render() {
     <div class="filter-bar" style="gap:var(--sp-2);margin-bottom:var(--sp-2)">
       ${renderViewPills(filters.view)}
     </div>
+
+    <div class="filter-summary">${
+      filtersActive
+        ? `<span class="filter-count">${filterCount}</span> filter${
+            filterCount === 1 ? "" : "s"
+          } active
+           <button type="button" class="clear-filters" id="btn-clear-summary">Clear all</button>`
+        : ""
+    }</div>
 
     <form class="filter-bar" id="filter-form">
       <div class="form-row">
@@ -178,7 +191,16 @@ export async function render() {
       stats.count === 0
         ? `<div class="card empty-state">
             <h3>No closed trades match</h3>
-            <p>Try clearing filters or log some closed trades first.</p>
+            <p>${
+              filtersActive
+                ? "No closed trades match the current filters."
+                : "Log some closed trades first to see analytics."
+            }</p>
+            ${
+              filtersActive
+                ? `<div class="empty-state-action"><button type="button" class="btn-sm" id="btn-clear-empty">Clear all filters</button></div>`
+                : ""
+            }
           </div>`
         : `
         <div class="stats-grid">
@@ -324,31 +346,16 @@ export async function render() {
             ? `<div class="section">
                 <div class="section-header"><h2>By account</h2></div>
                 <div class="card" style="padding:0">
-                  <table>
+                  <table id="by-account-table">
                     <thead>
                       <tr>
-                        <th>Account</th>
-                        <th class="num">Trades</th>
-                        <th class="num">Win %</th>
-                        <th class="num">P&amp;L</th>
+                        <th class="th-sortable" data-sort-key="account_name" data-sort-type="string">Account</th>
+                        <th class="num th-sortable" data-sort-key="count" data-sort-type="number">Trades</th>
+                        <th class="num th-sortable" data-sort-key="winRate" data-sort-type="number">Win %</th>
+                        <th class="num th-sortable" data-sort-key="pnl" data-sort-type="number">P&amp;L</th>
                       </tr>
                     </thead>
-                    <tbody>
-                      ${byAccount
-                        .map(
-                          (a) => `
-                          <tr>
-                            <td><strong>${esc(a.account_name)}</strong></td>
-                            <td class="num">${a.count}</td>
-                            <td class="num">${a.winRate.toFixed(0)}%</td>
-                            <td class="num ${pnlClass(a.pnl)}">${fmtMoney(
-                            a.pnl,
-                            { signed: true }
-                          )}</td>
-                          </tr>`
-                        )
-                        .join("")}
-                    </tbody>
+                    <tbody>${byAccount.map(renderAccountBreakdownRow).join("")}</tbody>
                   </table>
                 </div>
               </div>`
@@ -362,31 +369,16 @@ export async function render() {
               byInstrument.length === 0
                 ? `<div class="card empty-state"><p>No data</p></div>`
                 : `<div class="card" style="padding:0">
-                    <table>
+                    <table id="by-instrument-table">
                       <thead>
                         <tr>
-                          <th>Symbol</th>
-                          <th class="num">Trades</th>
-                          <th class="num">Win %</th>
-                          <th class="num">P&amp;L</th>
+                          <th class="th-sortable" data-sort-key="instrument" data-sort-type="string">Symbol</th>
+                          <th class="num th-sortable" data-sort-key="count" data-sort-type="number">Trades</th>
+                          <th class="num th-sortable" data-sort-key="winRate" data-sort-type="number">Win %</th>
+                          <th class="num th-sortable" data-sort-key="pnl" data-sort-type="number">P&amp;L</th>
                         </tr>
                       </thead>
-                      <tbody>
-                        ${byInstrument
-                          .map(
-                            (i) => `
-                            <tr>
-                              <td><strong>${esc(i.instrument)}</strong></td>
-                              <td class="num">${i.count}</td>
-                              <td class="num">${i.winRate.toFixed(0)}%</td>
-                              <td class="num ${pnlClass(i.pnl)}">${fmtMoney(
-                              i.pnl,
-                              { signed: true }
-                            )}</td>
-                            </tr>`
-                          )
-                          .join("")}
-                      </tbody>
+                      <tbody>${byInstrument.map(renderInstrumentBreakdownRow).join("")}</tbody>
                     </table>
                   </div>`
             }
@@ -397,38 +389,17 @@ export async function render() {
               byTag.length === 0
                 ? `<div class="card empty-state"><p>No tagged trades</p></div>`
                 : `<div class="card" style="padding:0">
-                    <table>
+                    <table id="by-tag-table">
                       <thead>
                         <tr>
-                          <th>Tag</th>
-                          <th class="num">Trades</th>
-                          <th class="num">Win %</th>
-                          <th class="num">Expectancy</th>
-                          <th class="num">P&amp;L</th>
+                          <th class="th-sortable" data-sort-key="name" data-sort-type="string">Tag</th>
+                          <th class="num th-sortable" data-sort-key="count" data-sort-type="number">Trades</th>
+                          <th class="num th-sortable" data-sort-key="winRate" data-sort-type="number">Win %</th>
+                          <th class="num th-sortable" data-sort-key="expectancy" data-sort-type="number">Expectancy</th>
+                          <th class="num th-sortable" data-sort-key="pnl" data-sort-type="number">P&amp;L</th>
                         </tr>
                       </thead>
-                      <tbody>
-                        ${byTag
-                          .map(
-                            (t) => `
-                            <tr>
-                              <td><span class="tag-static" style="--tag-color:${esc(
-                                t.color
-                              )}">${esc(t.name)}</span></td>
-                              <td class="num">${t.count}</td>
-                              <td class="num">${t.winRate.toFixed(0)}%</td>
-                              <td class="num ${pnlClass(t.expectancy)}">${fmtMoney(
-                              t.expectancy,
-                              { signed: true }
-                            )}</td>
-                              <td class="num ${pnlClass(t.pnl)}">${fmtMoney(
-                              t.pnl,
-                              { signed: true }
-                            )}</td>
-                            </tr>`
-                          )
-                          .join("")}
-                      </tbody>
+                      <tbody>${byTag.map(renderTagBreakdownRow).join("")}</tbody>
                     </table>
                   </div>`
             }
@@ -440,8 +411,7 @@ export async function render() {
 
   function mount(pageEl) {
     const form = pageEl.querySelector("#filter-form");
-    form?.addEventListener("submit", (e) => {
-      e.preventDefault();
+    const submitFromForm = () => {
       const fd = new FormData(form);
       const params = new URLSearchParams();
       for (const k of ["account_id", "instrument", "planned", "from", "to"]) {
@@ -451,18 +421,29 @@ export async function render() {
       const cats = fd.getAll("categories");
       if (cats.length) params.set("categories", cats.join(","));
       if (fd.get("archived")) params.set("archived", "1");
-      // Preserve the current view pill selection (submitted separately
-      // via the pill click handler below).
       if (filters.view && filters.view !== "all") params.set("view", filters.view);
       location.hash = "#/analytics" + (params.toString() ? "?" + params : "");
+    };
+    form?.addEventListener("submit", (e) => {
+      e.preventDefault();
+      submitFromForm();
     });
-    pageEl.querySelector("#btn-clear")?.addEventListener("click", () => {
+    // Auto-apply on any field change — no Apply click required.
+    form?.addEventListener("change", submitFromForm);
+
+    const clearAll = () => {
       location.hash = "#/analytics";
-    });
+    };
+    pageEl.querySelector("#btn-clear")?.addEventListener("click", clearAll);
+    pageEl
+      .querySelector("#btn-clear-summary")
+      ?.addEventListener("click", clearAll);
+    pageEl
+      .querySelector("#btn-clear-empty")
+      ?.addEventListener("click", clearAll);
+
     pageEl.querySelectorAll("[data-view]").forEach((btn) => {
       btn.addEventListener("click", () => {
-        // Clicking a view pill updates the view param and re-renders.
-        // Other filters are preserved via the existing URL params.
         const hash = location.hash;
         const qIdx = hash.indexOf("?");
         const sp = new URLSearchParams(qIdx >= 0 ? hash.slice(qIdx + 1) : "");
@@ -473,6 +454,35 @@ export async function render() {
           "#/analytics" + (sp.toString() ? "?" + sp.toString() : "");
       });
     });
+
+    // Sort the three breakdown tables (local sort, no hash persistence).
+    const byAcctEl = pageEl.querySelector("#by-account-table");
+    if (byAcctEl) {
+      attachSort(byAcctEl, {
+        rows: byAccount,
+        renderRow: renderAccountBreakdownRow,
+        defaultKey: "pnl",
+        defaultDir: "desc",
+      });
+    }
+    const byInstEl = pageEl.querySelector("#by-instrument-table");
+    if (byInstEl) {
+      attachSort(byInstEl, {
+        rows: byInstrument,
+        renderRow: renderInstrumentBreakdownRow,
+        defaultKey: "pnl",
+        defaultDir: "desc",
+      });
+    }
+    const byTagEl = pageEl.querySelector("#by-tag-table");
+    if (byTagEl) {
+      attachSort(byTagEl, {
+        rows: byTag,
+        renderRow: renderTagBreakdownRow,
+        defaultKey: "pnl",
+        defaultDir: "desc",
+      });
+    }
   }
 
   return { html, mount };
@@ -492,6 +502,50 @@ function renderViewPills(current) {
       `
     )
     .join("");
+}
+
+function countActiveFilters(f) {
+  let n = 0;
+  if (f.account_id) n++;
+  if (f.instrument) n++;
+  if (f.planned) n++;
+  if (f.fromDate) n++;
+  if (f.toDate) n++;
+  if (f.categories && f.categories.size > 0) n++;
+  if (f.includeArchived) n++;
+  if (f.view && f.view !== "all") n++;
+  return n;
+}
+
+function renderAccountBreakdownRow(a) {
+  return `
+    <tr>
+      <td><strong>${esc(a.account_name)}</strong></td>
+      <td class="num">${a.count}</td>
+      <td class="num">${a.winRate.toFixed(0)}%</td>
+      <td class="num ${pnlClass(a.pnl)}">${fmtMoney(a.pnl, { signed: true })}</td>
+    </tr>`;
+}
+
+function renderInstrumentBreakdownRow(i) {
+  return `
+    <tr>
+      <td><strong>${esc(i.instrument)}</strong></td>
+      <td class="num">${i.count}</td>
+      <td class="num">${i.winRate.toFixed(0)}%</td>
+      <td class="num ${pnlClass(i.pnl)}">${fmtMoney(i.pnl, { signed: true })}</td>
+    </tr>`;
+}
+
+function renderTagBreakdownRow(t) {
+  return `
+    <tr>
+      <td><span class="tag-static" style="--tag-color:${esc(t.color)}">${esc(t.name)}</span></td>
+      <td class="num">${t.count}</td>
+      <td class="num">${t.winRate.toFixed(0)}%</td>
+      <td class="num ${pnlClass(t.expectancy)}">${fmtMoney(t.expectancy, { signed: true })}</td>
+      <td class="num ${pnlClass(t.pnl)}">${fmtMoney(t.pnl, { signed: true })}</td>
+    </tr>`;
 }
 
 function readFilters() {

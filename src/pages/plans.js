@@ -26,6 +26,8 @@ import { confirmDialog } from "../components/modal.js";
 import { listTags, getPlanTags, setPlanTags } from "../lib/tags.js";
 import { getSetting, SETTING_KEYS } from "../lib/settings.js";
 import { refreshPage } from "../main.js";
+import { attachSort } from "../lib/table-sort.js";
+import { attachValidator } from "../lib/form-validate.js";
 
 // ---------- LIST ----------
 
@@ -71,19 +73,19 @@ export async function renderList() {
             }</p>
           </div>`
         : `<div class="card" style="padding:0">
-            <table>
+            <table id="plans-table">
               <thead>
                 <tr>
-                  <th>Created</th>
-                  <th>Account</th>
-                  <th>Symbol</th>
-                  <th>Side</th>
-                  <th class="num">Qty</th>
-                  <th class="num">Entry</th>
-                  <th class="num">Stop</th>
-                  <th class="num">Target</th>
-                  <th class="num">R:R</th>
-                  <th>Status</th>
+                  <th class="th-sortable" data-sort-key="created_at" data-sort-type="date">Created</th>
+                  <th class="th-sortable" data-sort-key="account_name" data-sort-type="string">Account</th>
+                  <th class="th-sortable" data-sort-key="instrument" data-sort-type="string">Symbol</th>
+                  <th class="th-sortable" data-sort-key="direction" data-sort-type="string">Side</th>
+                  <th class="num th-sortable" data-sort-key="contracts" data-sort-type="number">Qty</th>
+                  <th class="num th-sortable" data-sort-key="entry_price" data-sort-type="number">Entry</th>
+                  <th class="num th-sortable" data-sort-key="stop_price" data-sort-type="number">Stop</th>
+                  <th class="num th-sortable" data-sort-key="target_price" data-sort-type="number">Target</th>
+                  <th class="num th-sortable" data-sort-key="rr_planned" data-sort-type="number">R:R</th>
+                  <th class="th-sortable" data-sort-key="status" data-sort-type="string">Status</th>
                 </tr>
               </thead>
               <tbody>${plans.map(rowHtml).join("")}</tbody>
@@ -93,11 +95,22 @@ export async function renderList() {
   `;
 
   function mount(pageEl) {
-    pageEl.querySelectorAll("tr.clickable").forEach((tr) => {
-      tr.addEventListener("click", () => {
-        location.hash = `#/plans/${tr.dataset.id}`;
+    const tableEl = pageEl.querySelector("#plans-table");
+    if (tableEl) {
+      const bindRowClicks = () => {
+        tableEl.querySelectorAll("tr.clickable").forEach((tr) => {
+          tr.addEventListener("click", () => {
+            location.hash = `#/plans/${tr.dataset.id}`;
+          });
+        });
+      };
+      attachSort(tableEl, {
+        rows: plans,
+        renderRow: rowHtml,
+        onChange: bindRowClicks,
       });
-    });
+      bindRowClicks();
+    }
   }
 
   return { html, mount };
@@ -386,18 +399,20 @@ export async function renderForm(params = {}) {
       <div class="card">
         <div class="form-grid">
           <div class="form-row">
-            <label>Account</label>
-            <select name="account_id" required>${accountOpts}</select>
+            <label>Account <span class="req">*</span></label>
+            <select name="account_id" required aria-required="true">${accountOpts}</select>
+            <div class="field-error" data-for="account_id"></div>
           </div>
           <div class="form-row">
-            <label>Instrument</label>
-            <select name="instrument" required>${instrumentOpts}</select>
+            <label>Instrument <span class="req">*</span></label>
+            <select name="instrument" required aria-required="true">${instrumentOpts}</select>
             <div class="tick-info" id="tick-info"></div>
+            <div class="field-error" data-for="instrument"></div>
           </div>
         </div>
 
         <div class="form-row">
-          <label>Direction</label>
+          <label>Direction <span class="req">*</span></label>
           <div class="radio-group">
             <label><input type="radio" name="direction" value="long" ${
               plan.direction === "long" ? "checked" : ""
@@ -410,28 +425,32 @@ export async function renderForm(params = {}) {
 
         <div class="form-grid">
           <div class="form-row">
-            <label>Entry price</label>
-            <input type="number" name="entry_price" step="any" required value="${
+            <label>Entry price <span class="req">*</span></label>
+            <span class="input-currency"><input type="number" name="entry_price" step="any" required aria-required="true" inputmode="decimal" value="${
               plan.entry_price ?? ""
-            }">
+            }"></span>
+            <div class="field-error" data-for="entry_price"></div>
           </div>
           <div class="form-row">
-            <label>Contracts</label>
-            <input type="number" name="contracts" min="1" step="1" required value="${
+            <label>Contracts <span class="req">*</span></label>
+            <input type="number" name="contracts" min="1" step="1" required aria-required="true" inputmode="numeric" value="${
               plan.contracts ?? 1
             }">
+            <div class="field-error" data-for="contracts"></div>
           </div>
           <div class="form-row">
-            <label>Stop price *</label>
-            <input type="number" name="stop_price" step="any" required value="${
+            <label>Stop price <span class="req">*</span></label>
+            <span class="input-currency"><input type="number" name="stop_price" step="any" required aria-required="true" inputmode="decimal" value="${
               plan.stop_price ?? ""
-            }">
+            }"></span>
+            <div class="field-error" data-for="stop_price"></div>
           </div>
           <div class="form-row">
-            <label>Target price *</label>
-            <input type="number" name="target_price" step="any" required value="${
+            <label>Target price <span class="req">*</span></label>
+            <span class="input-currency"><input type="number" name="target_price" step="any" required aria-required="true" inputmode="decimal" value="${
               plan.target_price ?? ""
-            }">
+            }"></span>
+            <div class="field-error" data-for="target_price"></div>
           </div>
         </div>
       </div>
@@ -440,11 +459,11 @@ export async function renderForm(params = {}) {
 
       <div class="card">
         <div class="form-row">
-          <label>Tags</label>
+          <label>Tags <span class="opt">optional</span></label>
           <div id="tag-picker-mount"></div>
         </div>
         <div class="form-row">
-          <label>Thesis</label>
+          <label>Thesis <span class="opt">optional</span></label>
           <textarea name="thesis" placeholder="Why this trade? Key levels, context, what would invalidate it.">${esc(
             plan.thesis || ""
           )}</textarea>
@@ -556,9 +575,53 @@ export async function renderForm(params = {}) {
       updatePreview();
     });
 
+    // Inline field validation. Stop and target are both required for a plan
+    // (an entry without a target isn't a plan, per validatePlanShape).
+    const validator = attachValidator(form, {
+      account_id: (v) => (!v ? "Account is required." : null),
+      instrument: (v) => (!v ? "Instrument is required." : null),
+      contracts: (v) => {
+        const n = Number(v);
+        if (!Number.isFinite(n) || !Number.isInteger(n) || n < 1)
+          return "Must be a positive whole number.";
+        return null;
+      },
+      entry_price: (v) => priceErr(v, "Entry price"),
+      stop_price: () => {
+        const d = readDraft();
+        if (!Number.isFinite(d.stop_price) || d.stop_price <= 0)
+          return "Stop price must be a positive number.";
+        if (Number.isFinite(d.entry_price)) {
+          if (d.direction === "long" && d.stop_price >= d.entry_price)
+            return "For a long, stop must be below entry.";
+          if (d.direction === "short" && d.stop_price <= d.entry_price)
+            return "For a short, stop must be above entry.";
+        }
+        return null;
+      },
+      target_price: () => {
+        const d = readDraft();
+        if (!Number.isFinite(d.target_price) || d.target_price <= 0)
+          return "Target is required for a plan.";
+        if (Number.isFinite(d.entry_price)) {
+          if (d.direction === "long" && d.target_price <= d.entry_price)
+            return "For a long, target must be above entry.";
+          if (d.direction === "short" && d.target_price >= d.entry_price)
+            return "For a short, target must be below entry.";
+        }
+        return null;
+      },
+    });
+
     form.addEventListener("submit", async (e) => {
       e.preventDefault();
       errEl.textContent = "";
+      const { ok, firstField } = validator.runAll();
+      if (!ok) {
+        const el = form.elements[firstField];
+        if (el && typeof el.focus === "function") el.focus();
+        return;
+      }
       const draft = readDraft();
       const err = validatePlanShape(draft);
       if (err) {
@@ -566,7 +629,10 @@ export async function renderForm(params = {}) {
         return;
       }
       const submitBtn = form.querySelector('button[type="submit"]');
-      if (submitBtn) submitBtn.disabled = true;
+      if (submitBtn) {
+        submitBtn.disabled = true;
+        submitBtn.classList.add("btn-loading");
+      }
       try {
         let savedId;
         if (isEdit) {
@@ -584,7 +650,10 @@ export async function renderForm(params = {}) {
         console.error(err);
         errEl.textContent = String(err.message || err);
       } finally {
-        if (submitBtn) submitBtn.disabled = false;
+        if (submitBtn) {
+          submitBtn.disabled = false;
+          submitBtn.classList.remove("btn-loading");
+        }
       }
     });
 
@@ -612,4 +681,11 @@ function numOrNull(v) {
 function intOrNull(v) {
   const n = numOrNull(v);
   return n == null ? null : Math.trunc(n);
+}
+
+function priceErr(v, label) {
+  const n = Number(v);
+  if (v === "" || v == null) return `${label} is required.`;
+  if (!Number.isFinite(n) || n <= 0) return `${label} must be a positive number.`;
+  return null;
 }

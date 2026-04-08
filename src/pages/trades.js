@@ -36,6 +36,8 @@ import {
   esc,
 } from "../lib/format.js";
 import { refreshPage, registerPageCleanup } from "../main.js";
+import { attachSort } from "../lib/table-sort.js";
+import { attachValidator } from "../lib/form-validate.js";
 
 // ---------- LIST ----------
 
@@ -70,6 +72,9 @@ export async function renderList() {
     )
     .join("");
 
+  const filterCount = countActiveFilters(filters);
+  const filtersActive = filterCount > 0;
+
   const html = `
     <div class="page-header">
       <div>
@@ -78,6 +83,15 @@ export async function renderList() {
       </div>
       <a href="#/trades/new"><button class="primary">+ New trade</button></a>
     </div>
+
+    <div class="filter-summary">${
+      filtersActive
+        ? `<span class="filter-count">${filterCount}</span> filter${
+            filterCount === 1 ? "" : "s"
+          } active
+           <button type="button" class="clear-filters" id="btn-clear-summary">Clear all</button>`
+        : ""
+    }</div>
 
     <form class="filter-bar" id="filter-form">
       <div class="form-row">
@@ -124,23 +138,30 @@ export async function renderList() {
             <p>${
               accounts.length === 0
                 ? `Add an account first, then come back here.`
-                : `Try clearing filters, or log your first trade.`
+                : filtersActive
+                ? `No trades match the current filters.`
+                : `Log your first trade to start the journal.`
             }</p>
+            ${
+              filtersActive
+                ? `<div class="empty-state-action"><button type="button" class="btn-sm" id="btn-clear-empty">Clear all filters</button></div>`
+                : ""
+            }
           </div>`
         : `<div class="card" style="padding:0">
-            <table>
+            <table id="trades-table">
               <thead>
                 <tr>
-                  <th>Date</th>
-                  <th>Account</th>
-                  <th>Symbol</th>
-                  <th>Side</th>
-                  <th class="num">Qty</th>
-                  <th class="num">Entry</th>
-                  <th class="num">Exit</th>
-                  <th class="num">R</th>
-                  <th class="num">P&amp;L</th>
-                  <th>Status</th>
+                  <th class="th-sortable" data-sort-key="entry_time" data-sort-type="date">Date</th>
+                  <th class="th-sortable" data-sort-key="account_name" data-sort-type="string">Account</th>
+                  <th class="th-sortable" data-sort-key="instrument" data-sort-type="string">Symbol</th>
+                  <th class="th-sortable" data-sort-key="direction" data-sort-type="string">Side</th>
+                  <th class="num th-sortable" data-sort-key="contracts" data-sort-type="number">Qty</th>
+                  <th class="num th-sortable" data-sort-key="entry_price" data-sort-type="number">Entry</th>
+                  <th class="num th-sortable" data-sort-key="exit_price" data-sort-type="number">Exit</th>
+                  <th class="num th-sortable" data-sort-key="r_multiple" data-sort-type="number">R</th>
+                  <th class="num th-sortable" data-sort-key="pnl_dollars" data-sort-type="number">P&amp;L</th>
+                  <th class="th-sortable" data-sort-key="status" data-sort-type="string">Status</th>
                 </tr>
               </thead>
               <tbody>${trades.map(rowHtml).join("")}</tbody>
@@ -162,17 +183,50 @@ export async function renderList() {
       if (fd.get("needs_review") === "1") params.set("needs_review", "1");
       location.hash = "#/trades" + (params.toString() ? "?" + params : "");
     });
-    pageEl.querySelector("#btn-clear").addEventListener("click", () => {
+    const clearAll = () => {
       location.hash = "#/trades";
-    });
-    pageEl.querySelectorAll("tr.clickable").forEach((tr) => {
-      tr.addEventListener("click", () => {
-        location.hash = `#/trades/${tr.dataset.id}`;
+    };
+    pageEl.querySelector("#btn-clear").addEventListener("click", clearAll);
+    pageEl
+      .querySelector("#btn-clear-summary")
+      ?.addEventListener("click", clearAll);
+    pageEl
+      .querySelector("#btn-clear-empty")
+      ?.addEventListener("click", clearAll);
+
+    // Sort wiring. Click handlers attach via attachSort(); rows re-render in
+    // place. Row click delegation has to be re-bound on each sort because
+    // attachSort overwrites tbody innerHTML.
+    const tableEl = pageEl.querySelector("#trades-table");
+    if (tableEl) {
+      const bindRowClicks = () => {
+        tableEl.querySelectorAll("tr.clickable").forEach((tr) => {
+          tr.addEventListener("click", () => {
+            location.hash = `#/trades/${tr.dataset.id}`;
+          });
+        });
+      };
+      attachSort(tableEl, {
+        rows: trades,
+        renderRow: rowHtml,
+        onChange: bindRowClicks,
       });
-    });
+      bindRowClicks();
+    }
   }
 
   return { html, mount };
+}
+
+function countActiveFilters(f) {
+  let n = 0;
+  if (f.account_id) n++;
+  if (f.instrument) n++;
+  if (f.status) n++;
+  if (f.fromDate) n++;
+  if (f.toDate) n++;
+  if (f.needsReview) n++;
+  return n;
 }
 
 function readFilters() {
@@ -761,18 +815,20 @@ export async function renderForm(params = {}) {
       <div class="card">
         <div class="form-grid">
           <div class="form-row">
-            <label>Account</label>
-            <select name="account_id" required>${accountOpts}</select>
+            <label>Account <span class="req">*</span></label>
+            <select name="account_id" required aria-required="true">${accountOpts}</select>
+            <div class="field-error" data-for="account_id"></div>
           </div>
           <div class="form-row">
-            <label>Instrument</label>
-            <select name="instrument" required>${instrumentOpts}</select>
+            <label>Instrument <span class="req">*</span></label>
+            <select name="instrument" required aria-required="true">${instrumentOpts}</select>
             <div class="tick-info" id="tick-info"></div>
+            <div class="field-error" data-for="instrument"></div>
           </div>
         </div>
 
         <div class="form-row">
-          <label>Direction</label>
+          <label>Direction <span class="req">*</span></label>
           <div class="radio-group">
             <label><input type="radio" name="direction" value="long" ${
               trade.direction === "long" ? "checked" : ""
@@ -785,40 +841,46 @@ export async function renderForm(params = {}) {
 
         <div class="form-grid">
           <div class="form-row">
-            <label>Entry time</label>
-            <input type="datetime-local" name="entry_time" required value="${esc(
+            <label>Entry time <span class="req">*</span></label>
+            <input type="datetime-local" name="entry_time" required aria-required="true" value="${esc(
               isoToLocal(trade.entry_time)
             )}">
+            <div class="field-error" data-for="entry_time"></div>
           </div>
           <div class="form-row">
-            <label>Contracts</label>
-            <input type="number" name="contracts" min="1" step="1" required value="${
+            <label>Contracts <span class="req">*</span></label>
+            <input type="number" name="contracts" min="1" step="1" required aria-required="true" inputmode="numeric" value="${
               trade.contracts ?? 1
             }">
+            <div class="field-error" data-for="contracts"></div>
           </div>
           <div class="form-row">
-            <label>Entry price</label>
-            <input type="number" name="entry_price" step="any" required value="${
+            <label>Entry price <span class="req">*</span></label>
+            <span class="input-currency"><input type="number" name="entry_price" step="any" required aria-required="true" inputmode="decimal" value="${
               trade.entry_price ?? ""
-            }">
+            }"></span>
+            <div class="field-error" data-for="entry_price"></div>
           </div>
           <div class="form-row">
-            <label>Stop price *</label>
-            <input type="number" name="stop_price" step="any" required value="${
+            <label>Stop price <span class="req">*</span></label>
+            <span class="input-currency"><input type="number" name="stop_price" step="any" required aria-required="true" inputmode="decimal" value="${
               trade.stop_price ?? ""
-            }">
+            }"></span>
+            <div class="field-error" data-for="stop_price"></div>
           </div>
           <div class="form-row">
-            <label>Target (optional)</label>
-            <input type="number" name="target_price" step="any" value="${
+            <label>Target price <span class="opt">optional</span></label>
+            <span class="input-currency"><input type="number" name="target_price" step="any" inputmode="decimal" value="${
               trade.target_price ?? ""
-            }">
+            }"></span>
+            <div class="field-error" data-for="target_price"></div>
           </div>
           <div class="form-row">
-            <label>Fees ($)</label>
-            <input type="number" name="fees" step="0.01" min="0" value="${
+            <label>Fees <span class="opt">optional</span></label>
+            <span class="input-currency"><input type="number" name="fees" step="0.01" min="0" inputmode="decimal" value="${
               trade.fees ?? 0
-            }">
+            }"></span>
+            <div class="field-error" data-for="fees"></div>
           </div>
         </div>
       </div>
@@ -828,19 +890,21 @@ export async function renderForm(params = {}) {
       <div id="risk-panel"></div>
 
       <div class="card">
-        <h3 style="margin-bottom:var(--sp-3)">Exit (leave blank if still open)</h3>
+        <h3 style="margin-bottom:var(--sp-3)">Exit <span class="opt" style="font-size:var(--fs-sm);font-weight:400">leave blank if still open</span></h3>
         <div class="form-grid">
           <div class="form-row">
-            <label>Exit time</label>
+            <label>Exit time <span class="opt">optional</span></label>
             <input type="datetime-local" name="exit_time" value="${esc(
               isoToLocal(trade.exit_time)
             )}">
+            <div class="field-error" data-for="exit_time"></div>
           </div>
           <div class="form-row">
-            <label>Exit price</label>
-            <input type="number" name="exit_price" step="any" value="${
+            <label>Exit price <span class="opt">optional</span></label>
+            <span class="input-currency"><input type="number" name="exit_price" step="any" inputmode="decimal" value="${
               trade.exit_price ?? ""
-            }">
+            }"></span>
+            <div class="field-error" data-for="exit_price"></div>
           </div>
         </div>
       </div>
@@ -1113,9 +1177,82 @@ export async function renderForm(params = {}) {
       updateUnplannedNotice();
     });
 
+    // Inline validation. Each validator runs on blur and on submit; errors
+    // appear under the offending field. We piggyback on readDraft so the
+    // direction-aware checks (long stop < entry, etc.) match the same shape
+    // the submit handler uses.
+    const validator = attachValidator(form, {
+      account_id: (v) => (!v ? "Account is required." : null),
+      instrument: (v) => (!v ? "Instrument is required." : null),
+      entry_time: (v) => (!v ? "Entry time is required." : null),
+      contracts: (v) => {
+        const n = Number(v);
+        if (!Number.isFinite(n) || !Number.isInteger(n) || n < 1)
+          return "Must be a positive whole number.";
+        return null;
+      },
+      entry_price: (v) => priceErr(v, "Entry price"),
+      stop_price: () => {
+        const d = readDraft();
+        if (!Number.isFinite(d.stop_price) || d.stop_price <= 0)
+          return "Stop price must be a positive number.";
+        if (Number.isFinite(d.entry_price)) {
+          if (d.direction === "long" && d.stop_price >= d.entry_price)
+            return "For a long, stop must be below entry.";
+          if (d.direction === "short" && d.stop_price <= d.entry_price)
+            return "For a short, stop must be above entry.";
+        }
+        return null;
+      },
+      target_price: () => {
+        const d = readDraft();
+        if (d.target_price == null) return null;
+        if (!Number.isFinite(d.target_price) || d.target_price <= 0)
+          return "Target must be a positive number.";
+        if (Number.isFinite(d.entry_price)) {
+          if (d.direction === "long" && d.target_price <= d.entry_price)
+            return "For a long, target must be above entry.";
+          if (d.direction === "short" && d.target_price >= d.entry_price)
+            return "For a short, target must be below entry.";
+        }
+        return null;
+      },
+      fees: (v) => {
+        if (v === "" || v == null) return null;
+        const n = Number(v);
+        if (!Number.isFinite(n) || n < 0)
+          return "Fees must be zero or positive.";
+        return null;
+      },
+      exit_price: () => {
+        const d = readDraft();
+        if (d.exit_price == null && !d.exit_time) return null;
+        if (d.exit_price == null) return "Exit price is required when exit time is set.";
+        if (!Number.isFinite(d.exit_price) || d.exit_price <= 0)
+          return "Exit price must be a positive number.";
+        return null;
+      },
+      exit_time: () => {
+        const d = readDraft();
+        if (!d.exit_time && d.exit_price == null) return null;
+        if (!d.exit_time) return "Exit time is required when exit price is set.";
+        if (d.entry_time && d.exit_time <= d.entry_time)
+          return "Exit time must be after entry time.";
+        return null;
+      },
+    });
+
     form.addEventListener("submit", async (e) => {
       e.preventDefault();
       errEl.textContent = "";
+      // Inline field validation runs first; if any field fails, focus the
+      // first one and bail before touching the risk engine.
+      const { ok, firstField } = validator.runAll();
+      if (!ok) {
+        const el = form.elements[firstField];
+        if (el && typeof el.focus === "function") el.focus();
+        return;
+      }
       const draft = readDraft();
 
       const err = validateTradeShape(draft);
@@ -1125,7 +1262,10 @@ export async function renderForm(params = {}) {
       }
 
       const submitBtn = form.querySelector('button[type="submit"]');
-      if (submitBtn) submitBtn.disabled = true;
+      if (submitBtn) {
+        submitBtn.disabled = true;
+        submitBtn.classList.add("btn-loading");
+      }
       try {
         // Pre-trade risk check. Only blocks on new trades or when editing an
         // open trade (closed-trade edits skip guardrails in updateRiskPanel).
@@ -1176,7 +1316,10 @@ export async function renderForm(params = {}) {
           errEl.textContent = String(err.message || err);
         }
       } finally {
-        if (submitBtn) submitBtn.disabled = false;
+        if (submitBtn) {
+          submitBtn.disabled = false;
+          submitBtn.classList.remove("btn-loading");
+        }
       }
     });
 
@@ -1400,4 +1543,12 @@ function numOrNull(v) {
 function intOrNull(v) {
   const n = numOrNull(v);
   return n == null ? null : Math.trunc(n);
+}
+
+// Shared price validator: required, finite, > 0.
+function priceErr(v, label) {
+  const n = Number(v);
+  if (v === "" || v == null) return `${label} is required.`;
+  if (!Number.isFinite(n) || n <= 0) return `${label} must be a positive number.`;
+  return null;
 }

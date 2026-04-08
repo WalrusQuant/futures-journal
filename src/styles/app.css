@@ -982,3 +982,250 @@ td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
   border-left: 3px solid var(--warn);
   background: rgba(255, 193, 7, 0.06);
 }
+
+/* ============================================================
+   UX uplift — Sessions 1–4
+   Required/optional markers, currency inputs, button loading,
+   sortable headers, filter summary chips, inline field errors,
+   skeleton loaders, modal tabs, command palette.
+   ============================================================ */
+
+/* --- Required vs optional field markers --- */
+.form-row > label .req {
+  color: var(--loss);
+  margin-left: 2px;
+  font-weight: 600;
+}
+.form-row > label .opt {
+  color: var(--text-dim);
+  margin-left: 6px;
+  font-size: var(--fs-xs);
+  text-transform: none;
+  letter-spacing: 0;
+  font-weight: 400;
+}
+
+/* --- Currency input wrapper ($ prefix, no spinners) --- */
+.input-currency {
+  position: relative;
+  width: 100%;
+}
+.input-currency::before {
+  content: "$";
+  position: absolute;
+  left: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--text-dim);
+  pointer-events: none;
+  font-variant-numeric: tabular-nums;
+  font-family: var(--font-mono);
+}
+.input-currency input {
+  padding-left: 22px;
+}
+.input-currency input::-webkit-outer-spin-button,
+.input-currency input::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+.input-currency input[type="number"] {
+  -moz-appearance: textfield;
+}
+
+/* --- Submit button loading state --- */
+.btn-loading {
+  position: relative;
+  color: transparent !important;
+  pointer-events: none;
+}
+.btn-loading::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  margin: auto;
+  width: 14px;
+  height: 14px;
+  border: 2px solid var(--text-dim);
+  border-top-color: var(--text);
+  border-radius: 50%;
+  animation: btn-spin 0.7s linear infinite;
+}
+@keyframes btn-spin { to { transform: rotate(360deg); } }
+
+/* --- Empty-state CTA button --- */
+.empty-state-action { margin-top: var(--sp-3); }
+
+/* --- Sortable table headers --- */
+th.th-sortable {
+  cursor: pointer;
+  user-select: none;
+}
+th.th-sortable:hover { color: var(--text); }
+th.th-sortable::after {
+  content: "↕";
+  opacity: 0.3;
+  margin-left: 6px;
+  font-size: 0.9em;
+}
+th.th-sortable[data-sort="asc"]::after  { content: "↑"; opacity: 1; color: var(--accent); }
+th.th-sortable[data-sort="desc"]::after { content: "↓"; opacity: 1; color: var(--accent); }
+
+/* --- Filter summary chip (N filters active · Clear all) --- */
+.filter-summary {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  margin-bottom: var(--sp-2);
+  font-size: var(--fs-sm);
+  color: var(--text-muted);
+  min-height: 24px;
+}
+.filter-summary:empty { display: none; }
+.filter-summary .filter-count {
+  background: var(--accent);
+  color: #000;
+  padding: 2px 10px;
+  border-radius: 999px;
+  font-size: var(--fs-xs);
+  font-weight: 600;
+}
+.filter-summary .clear-filters {
+  margin-left: auto;
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  font-size: var(--fs-xs);
+  padding: 4px 10px;
+  border-radius: var(--r-sm);
+}
+.filter-summary .clear-filters:hover {
+  color: var(--text);
+  border-color: var(--border-bold);
+}
+
+/* --- Inline field validation --- */
+.form-row .field-error {
+  color: var(--loss);
+  font-size: var(--fs-xs);
+  margin-top: 4px;
+  min-height: 1em;
+  opacity: 0;
+  transition: opacity 0.15s;
+  text-transform: none;
+  letter-spacing: 0;
+}
+.form-row.has-error .field-error { opacity: 1; }
+.form-row.has-error input,
+.form-row.has-error select,
+.form-row.has-error textarea {
+  border-color: var(--loss);
+}
+
+/* --- Skeleton loaders (dashboard) --- */
+@keyframes skeleton-pulse { 0%, 100% { opacity: 0.35; } 50% { opacity: 0.7; } }
+.skeleton {
+  background: var(--bg-elevated);
+  border-radius: var(--r-sm);
+  animation: skeleton-pulse 1.2s ease-in-out infinite;
+  min-height: 16px;
+}
+.skeleton-stat { height: 92px; }
+.skeleton-card { height: 160px; }
+.skeleton-row { height: 32px; margin-bottom: var(--sp-2); }
+.skeleton-line { height: 14px; margin: 6px 0; }
+.skeleton-line.short { width: 40%; }
+.skeleton-line.med   { width: 70%; }
+
+/* --- Account modal tabs (CSS-driven panel visibility) --- */
+form[data-active-tab="basics"]   .tab-panel:not([data-tab="basics"]),
+form[data-active-tab="rules"]    .tab-panel:not([data-tab="rules"]),
+form[data-active-tab="advanced"] .tab-panel:not([data-tab="advanced"]) {
+  display: none;
+}
+/* Cash and bank accounts have no per-account rules — hide the Rules tab. */
+form[data-account-type="cash"] .modal-tab-bar [data-tab-target="rules"] {
+  display: none;
+}
+.modal-tab-bar {
+  display: flex;
+  gap: var(--sp-1);
+  border-bottom: 1px solid var(--border);
+  margin: 0 0 var(--sp-4);
+}
+.modal-tab-bar button {
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: var(--text-muted);
+  padding: var(--sp-2) var(--sp-4);
+  border-radius: 0;
+  font-size: var(--fs-md);
+}
+.modal-tab-bar button:hover {
+  color: var(--text);
+  background: var(--bg-hover);
+}
+.modal-tab-bar button.active {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+}
+
+/* --- Command palette (Cmd+K) --- */
+.cmdk-modal { padding: var(--sp-3); }
+.cmdk-input {
+  width: 100%;
+  padding: var(--sp-3);
+  font-size: var(--fs-lg);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  color: var(--text);
+  font-family: var(--font-mono);
+}
+.cmdk-input:focus { border-color: var(--accent); }
+.cmdk-list {
+  list-style: none;
+  padding: 0;
+  margin: var(--sp-3) 0 0;
+  max-height: 360px;
+  overflow-y: auto;
+}
+.cmdk-item {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: var(--sp-2) var(--sp-3);
+  border-radius: var(--r-sm);
+  cursor: pointer;
+  color: var(--text);
+}
+.cmdk-item:hover,
+.cmdk-item.active {
+  background: var(--bg-hover);
+}
+.cmdk-item.active { color: var(--accent); }
+.cmdk-item .cmdk-label { flex: 1; }
+.cmdk-item .cmdk-hint {
+  margin-left: auto;
+  font-size: var(--fs-xs);
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.cmdk-empty {
+  padding: var(--sp-4);
+  text-align: center;
+  color: var(--text-dim);
+  font-size: var(--fs-sm);
+}
+.sidebar-footer kbd {
+  display: inline-block;
+  padding: 1px 6px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-muted);
+}

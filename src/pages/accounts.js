@@ -23,6 +23,7 @@ import { consistencyStatus } from "../lib/analytics.js";
 import { fmtMoney, fmtDate, fmtDateTime, esc } from "../lib/format.js";
 import { openModal, closeModal, confirmDialog, notify } from "../components/modal.js";
 import { refreshPage } from "../main.js";
+import { attachValidator } from "../lib/form-validate.js";
 
 // ---------- LIST ----------
 
@@ -425,16 +426,89 @@ function openAccountModal(account = null) {
   // rule engine `type`. Update both on change.
   const categorySelect = form.querySelector("#account-category-select");
   const categoryHelp = form.querySelector("#account-category-help");
+  const tabButtons = wrap.querySelectorAll(".modal-tab-bar [data-tab-target]");
+  const setActiveTab = (target) => {
+    form.dataset.activeTab = target;
+    tabButtons.forEach((b) => {
+      b.classList.toggle("active", b.dataset.tabTarget === target);
+    });
+  };
+  tabButtons.forEach((b) => {
+    b.addEventListener("click", () => setActiveTab(b.dataset.tabTarget));
+  });
   const applyCategory = (value) => {
     const def = categoryDef(value);
     const t = def?.type || "cash";
     form.dataset.accountType = t;
     form.dataset.accountCategory = value;
     if (categoryHelp) categoryHelp.textContent = def?.desc || "";
+    // Cash/bank accounts hide the Rules tab — bounce back to Basics so the
+    // user isn't staring at an invisible panel.
+    if (t !== "funded" && form.dataset.activeTab === "rules") {
+      setActiveTab("basics");
+    }
   };
   applyCategory(initial.category);
   categorySelect?.addEventListener("change", () => {
     applyCategory(categorySelect.value);
+  });
+
+  // Inline validators. Rules-tab fields are only validated for funded
+  // accounts; for cash/bank, those fields are wiped server-side anyway.
+  const isFunded = () => form.dataset.accountType === "funded";
+  // Map each rules-tab field name → "rules" so we can switch tabs on error.
+  const RULES_FIELDS = new Set([
+    "trailing_dd",
+    "dd_lock_offset",
+    "daily_loss_limit",
+    "profit_target",
+    "max_minis",
+    "max_micros",
+    "consistency_pct",
+  ]);
+  const nonNegOrEmpty = (label) => (v) => {
+    if (v === "" || v == null) return null;
+    const n = Number(v);
+    if (!Number.isFinite(n) || n < 0)
+      return `${label} must be zero or a positive number.`;
+    return null;
+  };
+  const intOrEmpty = (label) => (v) => {
+    if (v === "" || v == null) return null;
+    const n = Number(v);
+    if (!Number.isFinite(n) || !Number.isInteger(n) || n < 0)
+      return `${label} must be a whole number ≥ 0.`;
+    return null;
+  };
+  const validator = attachValidator(form, {
+    name: (v) => (!String(v || "").trim() ? "Name is required." : null),
+    account_size: (v) => {
+      const n = Number(v);
+      if (!Number.isFinite(n) || n <= 0)
+        return "Account size must be a positive number.";
+      return null;
+    },
+    current_balance: (v) => {
+      if (v === "" || v == null) return null;
+      const n = Number(v);
+      if (!Number.isFinite(n)) return "Must be a number.";
+      return null;
+    },
+    trailing_dd: (v) => (isFunded() ? nonNegOrEmpty("Drawdown amount")(v) : null),
+    dd_lock_offset: (v) =>
+      isFunded() ? nonNegOrEmpty("Lock offset")(v) : null,
+    daily_loss_limit: (v) =>
+      isFunded() ? nonNegOrEmpty("Daily loss limit")(v) : null,
+    profit_target: (v) => (isFunded() ? nonNegOrEmpty("Profit target")(v) : null),
+    max_minis: (v) => (isFunded() ? intOrEmpty("Max minis")(v) : null),
+    max_micros: (v) => (isFunded() ? intOrEmpty("Max micros")(v) : null),
+    consistency_pct: (v) => {
+      if (!isFunded() || v === "" || v == null) return null;
+      const n = Number(v);
+      if (!Number.isFinite(n) || n < 0 || n > 100)
+        return "Must be between 0 and 100.";
+      return null;
+    },
   });
 
   // Drawdown mode help text updates live.
@@ -450,6 +524,20 @@ function openAccountModal(account = null) {
   form.addEventListener("submit", async (e) => {
     e.preventDefault();
     errEl.textContent = "";
+
+    // Inline validation pass — short-circuit before assembling `data`.
+    // If a Rules-tab field fails while the user is on Basics, jump tabs
+    // before focusing so they actually see the error.
+    const { ok, firstField } = validator.runAll();
+    if (!ok) {
+      if (RULES_FIELDS.has(firstField) && form.dataset.activeTab !== "rules") {
+        setActiveTab("rules");
+      }
+      const el = form.elements[firstField];
+      if (el && typeof el.focus === "function") el.focus();
+      return;
+    }
+
     const fd = new FormData(form);
     const category = fd.get("category") || "sim_funded";
     const derivedType = categoryDef(category)?.type || "cash";
@@ -536,7 +624,10 @@ function openAccountModal(account = null) {
     }
 
     const submitBtn = form.querySelector('button[type="submit"]');
-    if (submitBtn) submitBtn.disabled = true;
+    if (submitBtn) {
+      submitBtn.disabled = true;
+      submitBtn.classList.add("btn-loading");
+    }
     try {
       if (isEdit) {
         await updateAccount(account.id, data);
@@ -549,7 +640,10 @@ function openAccountModal(account = null) {
       console.error(err);
       errEl.textContent = String(err.message || err);
     } finally {
-      if (submitBtn) submitBtn.disabled = false;
+      if (submitBtn) {
+        submitBtn.disabled = false;
+        submitBtn.classList.remove("btn-loading");
+      }
     }
   });
 
@@ -588,129 +682,150 @@ function accountFormHtml(a, isEdit) {
   const currentCategoryDef = categoryDef(currentCategory);
 
   return `
-    <form id="account-form" autocomplete="off">
-      <div class="form-row">
-        <label>Category</label>
-        <select name="category" id="account-category-select">${categoryOptions}</select>
-        <div class="help" id="account-category-help">${esc(
-          currentCategoryDef?.desc || ""
-        )}</div>
+    <form id="account-form" autocomplete="off" data-active-tab="basics">
+      <div class="modal-tab-bar">
+        <button type="button" class="active" data-tab-target="basics">Basics</button>
+        <button type="button" data-tab-target="rules">Rules</button>
       </div>
 
-      <div class="form-row">
-        <label>Name</label>
-        <input name="name" required value="${esc(a.name)}" placeholder="Apex 100k #1">
-      </div>
-
-      <div data-show-when="funded">
+      <div class="tab-panel" data-tab="basics">
         <div class="form-row">
-          <label>Prop firm</label>
-          <select name="prop_firm">${propOptions}</select>
-        </div>
-      </div>
-
-      <div data-show-when="cash-broker">
-        <div class="form-row">
-          <label>Broker</label>
-          <select name="broker">${brokerOptions}</select>
-        </div>
-      </div>
-
-      <div class="form-grid">
-        <div class="form-row">
-          <label>Account size ($)</label>
-          <input name="account_size" type="number" step="0.01" min="0" required value="${
-            a.account_size || ""
-          }">
-        </div>
-        <div class="form-row">
-          <label>Current balance ($)</label>
-          <input name="current_balance" type="number" step="0.01" value="${
-            a.current_balance || ""
-          }" placeholder="defaults to size">
-        </div>
-      </div>
-
-      <div data-show-when="funded">
-        <div class="form-row">
-          <label>Drawdown type</label>
-          <select name="drawdown_mode" id="drawdown-mode-select">
-            ${DRAWDOWN_MODES.map(
-              (m) =>
-                `<option value="${m.value}"${
-                  (a.drawdown_mode || "static") === m.value ? " selected" : ""
-                }>${esc(m.label)}</option>`
-            ).join("")}
-          </select>
-          <div class="help" id="drawdown-mode-help">${esc(
-            DRAWDOWN_MODES.find(
-              (m) => m.value === (a.drawdown_mode || "static")
-            )?.desc || ""
+          <label>Category <span class="req">*</span></label>
+          <select name="category" id="account-category-select" aria-required="true">${categoryOptions}</select>
+          <div class="help" id="account-category-help">${esc(
+            currentCategoryDef?.desc || ""
           )}</div>
         </div>
+
+        <div class="form-row">
+          <label>Name <span class="req">*</span></label>
+          <input name="name" required aria-required="true" value="${esc(
+            a.name
+          )}" placeholder="Apex 100k #1">
+          <div class="field-error" data-for="name"></div>
+        </div>
+
+        <div data-show-when="funded">
+          <div class="form-row">
+            <label>Prop firm</label>
+            <select name="prop_firm">${propOptions}</select>
+          </div>
+        </div>
+
+        <div data-show-when="cash-broker">
+          <div class="form-row">
+            <label>Broker</label>
+            <select name="broker">${brokerOptions}</select>
+          </div>
+        </div>
+
         <div class="form-grid">
           <div class="form-row">
-            <label>Drawdown amount ($)</label>
-            <input name="trailing_dd" type="number" step="0.01" min="0" value="${
-              a.trailing_dd ?? ""
-            }">
+            <label>Account size <span class="req">*</span></label>
+            <span class="input-currency"><input name="account_size" type="number" step="0.01" min="0" required aria-required="true" inputmode="decimal" value="${
+              a.account_size || ""
+            }"></span>
+            <div class="field-error" data-for="account_size"></div>
           </div>
           <div class="form-row">
-            <label>Lock floor at starting + $</label>
-            <input name="dd_lock_offset" type="number" step="0.01" min="0" value="${
-              a.dd_lock_offset ?? ""
-            }" placeholder="leave empty = no lock">
-            <div class="help">Combine: <code>0</code>. Sim funded: usually <code>100</code>. Empty means the floor keeps trailing forever.</div>
+            <label>Current balance <span class="opt">defaults to size</span></label>
+            <span class="input-currency"><input name="current_balance" type="number" step="0.01" inputmode="decimal" value="${
+              a.current_balance || ""
+            }"></span>
+            <div class="field-error" data-for="current_balance"></div>
           </div>
         </div>
-        <div class="form-row">
-          <label>
-            <input type="checkbox" name="dd_lock_on_payout" value="1"${
-              a.dd_lock_on_payout ? " checked" : ""
-            }>
-            Also lock on any withdrawal or payout
-          </label>
-          <div class="help">Sim-funded accounts typically freeze the trailing floor the moment you take a withdrawal or payout, regardless of whether the peak threshold has been reached.</div>
-        </div>
-        <div class="form-grid">
+      </div>
+
+      <div class="tab-panel" data-tab="rules">
+        <div data-show-when="funded">
           <div class="form-row">
-            <label>Daily loss limit ($)</label>
-            <input name="daily_loss_limit" type="number" step="0.01" min="0" value="${
-              a.daily_loss_limit ?? ""
-            }">
+            <label>Drawdown type</label>
+            <select name="drawdown_mode" id="drawdown-mode-select">
+              ${DRAWDOWN_MODES.map(
+                (m) =>
+                  `<option value="${m.value}"${
+                    (a.drawdown_mode || "static") === m.value ? " selected" : ""
+                  }>${esc(m.label)}</option>`
+              ).join("")}
+            </select>
+            <div class="help" id="drawdown-mode-help">${esc(
+              DRAWDOWN_MODES.find(
+                (m) => m.value === (a.drawdown_mode || "static")
+              )?.desc || ""
+            )}</div>
+          </div>
+          <div class="form-grid">
+            <div class="form-row">
+              <label>Drawdown amount <span class="opt">optional</span></label>
+              <span class="input-currency"><input name="trailing_dd" type="number" step="0.01" min="0" inputmode="decimal" value="${
+                a.trailing_dd ?? ""
+              }"></span>
+              <div class="field-error" data-for="trailing_dd"></div>
+            </div>
+            <div class="form-row">
+              <label>Lock floor at starting + <span class="opt">optional</span></label>
+              <span class="input-currency"><input name="dd_lock_offset" type="number" step="0.01" min="0" inputmode="decimal" value="${
+                a.dd_lock_offset ?? ""
+              }" placeholder="leave empty = no lock"></span>
+              <div class="field-error" data-for="dd_lock_offset"></div>
+              <div class="help">Combine: <code>0</code>. Sim funded: usually <code>100</code>. Empty means the floor keeps trailing forever.</div>
+            </div>
           </div>
           <div class="form-row">
-            <label>Profit target ($)</label>
-            <input name="profit_target" type="number" step="0.01" min="0" value="${
-              a.profit_target ?? ""
-            }">
+            <label>
+              <input type="checkbox" name="dd_lock_on_payout" value="1"${
+                a.dd_lock_on_payout ? " checked" : ""
+              }>
+              Also lock on any withdrawal or payout
+            </label>
+            <div class="help">Sim-funded accounts typically freeze the trailing floor the moment you take a withdrawal or payout, regardless of whether the peak threshold has been reached.</div>
+          </div>
+          <div class="form-grid">
+            <div class="form-row">
+              <label>Daily loss limit <span class="opt">optional</span></label>
+              <span class="input-currency"><input name="daily_loss_limit" type="number" step="0.01" min="0" inputmode="decimal" value="${
+                a.daily_loss_limit ?? ""
+              }"></span>
+              <div class="field-error" data-for="daily_loss_limit"></div>
+            </div>
+            <div class="form-row">
+              <label>Profit target <span class="opt">optional</span></label>
+              <span class="input-currency"><input name="profit_target" type="number" step="0.01" min="0" inputmode="decimal" value="${
+                a.profit_target ?? ""
+              }"></span>
+              <div class="field-error" data-for="profit_target"></div>
+            </div>
+            <div class="form-row">
+              <label>Max minis <span class="opt">optional</span></label>
+              <input name="max_minis" type="number" step="1" min="0" inputmode="numeric" value="${
+                a.max_minis ?? ""
+              }" placeholder="e.g. 4">
+              <div class="field-error" data-for="max_minis"></div>
+            </div>
+            <div class="form-row">
+              <label>Max micros <span class="opt">optional</span></label>
+              <input name="max_micros" type="number" step="1" min="0" inputmode="numeric" value="${
+                a.max_micros ?? ""
+              }" placeholder="e.g. 40">
+              <div class="field-error" data-for="max_micros"></div>
+            </div>
           </div>
           <div class="form-row">
-            <label>Max minis</label>
-            <input name="max_minis" type="number" step="1" min="0" value="${
-              a.max_minis ?? ""
-            }" placeholder="e.g. 4">
+            <label>Consistency limit (%) <span class="opt">optional</span></label>
+            <input name="consistency_pct" type="number" step="1" min="0" max="100" inputmode="numeric" value="${
+              a.consistency_pct ?? ""
+            }" placeholder="e.g. 30">
+            <div class="field-error" data-for="consistency_pct"></div>
+            <div class="help">Best day's profit must stay under this % of total profit. Evaluated end-of-day, display only. Leave empty to disable.</div>
           </div>
           <div class="form-row">
-            <label>Max micros</label>
-            <input name="max_micros" type="number" step="1" min="0" value="${
-              a.max_micros ?? ""
-            }" placeholder="e.g. 40">
+            <label>Rules notes <span class="opt">optional</span></label>
+            <textarea name="rules_notes" placeholder="Consistency rule, news restrictions, scaling plan...">${esc(
+              a.rules_notes || ""
+            )}</textarea>
+            <div class="help">Free-form. The app enforces the numeric rules above; this is for everything else.</div>
           </div>
-        </div>
-        <div class="form-row">
-          <label>Consistency limit (%)</label>
-          <input name="consistency_pct" type="number" step="1" min="0" max="100" value="${
-            a.consistency_pct ?? ""
-          }" placeholder="e.g. 30">
-          <div class="help">Best day's profit must stay under this % of total profit. Evaluated end-of-day, display only. Leave empty to disable.</div>
-        </div>
-        <div class="form-row">
-          <label>Rules notes</label>
-          <textarea name="rules_notes" placeholder="Consistency rule, news restrictions, scaling plan...">${esc(
-            a.rules_notes || ""
-          )}</textarea>
-          <div class="help">Free-form. The app enforces the numeric rules above; this is for everything else.</div>
         </div>
       </div>
 

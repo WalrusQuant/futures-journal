@@ -13,6 +13,7 @@ import { getSetting, SETTING_KEYS } from "./lib/settings.js";
 import { setPrivacyMode } from "./lib/format.js";
 import { autoBackup } from "./lib/backup.js";
 import { toast } from "./components/toast.js";
+import { openCommandPalette } from "./components/command-palette.js";
 
 // Route table. Patterns may include :params, e.g. "/accounts/:id".
 // IMPORTANT: exact paths must precede their pattern siblings — the matcher
@@ -92,7 +93,12 @@ function shellHtml() {
           <small>v${pkg.version} — opinionated</small>
         </div>
         <nav class="sidebar-nav">${links}</nav>
-        <div class="sidebar-footer">local · sqlite · futures only</div>
+        <div class="sidebar-footer">
+          local · sqlite · futures only<br>
+          <span style="display:inline-flex;align-items:center;gap:4px;margin-top:6px">
+            <kbd>⌘K</kbd> commands
+          </span>
+        </div>
       </aside>
       <main class="main" id="page"></main>
     </div>
@@ -177,4 +183,15 @@ window.addEventListener("hashchange", mount);
 window.addEventListener("DOMContentLoaded", async () => {
   await bootstrap();
   mount();
+});
+
+// Global Cmd+K / Ctrl+K listener for the command palette. Bound once at
+// load. The palette uses the existing modal infrastructure, so its own
+// Escape handling cleans up via modal.js (which calls our onClose to
+// flip the open flag back).
+window.addEventListener("keydown", (e) => {
+  if ((e.metaKey || e.ctrlKey) && (e.key === "k" || e.key === "K")) {
+    e.preventDefault();
+    openCommandPalette();
+  }
 });

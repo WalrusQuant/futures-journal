@@ -17,6 +17,7 @@ import {
 } from "../lib/ledger.js";
 import { lineChart } from "../components/charts.js";
 import { fmtMoney, fmtDate, esc } from "../lib/format.js";
+import { attachSort } from "../lib/table-sort.js";
 
 export async function render() {
   // Archived accounts included — historical fees from failed combines
@@ -83,6 +84,50 @@ export async function render() {
         setRange(key);
       });
     });
+    // Wire sortable headers on the events table.
+    const eventsTable = pageEl.querySelector("#events-table");
+    if (eventsTable && view.events.length > 0) {
+      // Build flat sort keys so the helper can compare nested fields.
+      const sortable = view.events
+        .slice()
+        .reverse()
+        .map((e) => ({
+          ...e,
+          _date: e.t,
+          _account: e.account?.name || "",
+          _kind: kindLabel(e.kind),
+          _category: e.category,
+          _amount: e.delta,
+        }));
+      attachSort(eventsTable, {
+        rows: sortable,
+        renderRow: renderEventRow,
+        defaultKey: "_date",
+        defaultDir: "desc",
+      });
+    }
+    // Sortable fee burn table.
+    const feesTable = pageEl.querySelector("#fees-table");
+    if (feesTable && perAccountFees.size > 0) {
+      const feeRows = [];
+      for (const [key, bucket] of perAccountFees) {
+        feeRows.push({
+          key,
+          ...bucket,
+          _account: bucket.account?.name || "",
+          _sub: bucket.totals.sub_fee,
+          _reset: bucket.totals.reset_fee,
+          _activation: bucket.totals.activation_fee,
+          _total: bucket.totals.total,
+        });
+      }
+      attachSort(feesTable, {
+        rows: feeRows,
+        renderRow: renderFeeRow,
+        defaultKey: "_total",
+        defaultDir: "asc",
+      });
+    }
   }
 
   return { html, mount };
@@ -229,40 +274,40 @@ function renderPerAccountFees(map) {
     <div class="section">
       <div class="section-header"><h2>Fee burn by account</h2></div>
       <div class="card" style="padding:0">
-        <table>
+        <table id="fees-table">
           <thead>
             <tr>
-              <th>Account</th>
-              <th style="text-align:right">Subs</th>
-              <th style="text-align:right">Resets</th>
-              <th style="text-align:right">Activation</th>
-              <th style="text-align:right">Total</th>
+              <th class="th-sortable" data-sort-key="_account" data-sort-type="string">Account</th>
+              <th class="num th-sortable" data-sort-key="_sub" data-sort-type="number">Subs</th>
+              <th class="num th-sortable" data-sort-key="_reset" data-sort-type="number">Resets</th>
+              <th class="num th-sortable" data-sort-key="_activation" data-sort-type="number">Activation</th>
+              <th class="num th-sortable" data-sort-key="_total" data-sort-type="number">Total</th>
             </tr>
           </thead>
           <tbody>
-            ${rows
-              .map(
-                (r) => `
-                  <tr>
-                    <td>${
-                      r.account
-                        ? `<strong>${esc(r.account.name)}</strong> <span class="dim">${esc(
-                            categoryDef(r.account.category)?.label || r.account.type
-                          )}</span>`
-                        : `<span class="muted">(unattributed)</span>`
-                    }</td>
-                    <td class="num loss">${fmtMoney(r.totals.sub_fee)}</td>
-                    <td class="num loss">${fmtMoney(r.totals.reset_fee)}</td>
-                    <td class="num loss">${fmtMoney(r.totals.activation_fee)}</td>
-                    <td class="num loss"><strong>${fmtMoney(r.totals.total)}</strong></td>
-                  </tr>
-                `
-              )
-              .join("")}
+            ${rows.map(renderFeeRow).join("")}
           </tbody>
         </table>
       </div>
     </div>
+  `;
+}
+
+function renderFeeRow(r) {
+  return `
+    <tr>
+      <td>${
+        r.account
+          ? `<strong>${esc(r.account.name)}</strong> <span class="dim">${esc(
+              categoryDef(r.account.category)?.label || r.account.type
+            )}</span>`
+          : `<span class="muted">(unattributed)</span>`
+      }</td>
+      <td class="num loss">${fmtMoney(r.totals.sub_fee)}</td>
+      <td class="num loss">${fmtMoney(r.totals.reset_fee)}</td>
+      <td class="num loss">${fmtMoney(r.totals.activation_fee)}</td>
+      <td class="num loss"><strong>${fmtMoney(r.totals.total)}</strong></td>
+    </tr>
   `;
 }
 
@@ -276,14 +321,14 @@ function renderEventTable(events) {
     <div class="section">
       <div class="section-header"><h2>Events</h2></div>
       <div class="card" style="padding:0">
-        <table>
+        <table id="events-table">
           <thead>
             <tr>
-              <th>Date</th>
-              <th>Account</th>
-              <th>Kind</th>
-              <th>Category</th>
-              <th style="text-align:right">Amount</th>
+              <th class="th-sortable" data-sort-key="_date" data-sort-type="date">Date</th>
+              <th class="th-sortable" data-sort-key="_account" data-sort-type="string">Account</th>
+              <th class="th-sortable" data-sort-key="_kind" data-sort-type="string">Kind</th>
+              <th class="th-sortable" data-sort-key="_category" data-sort-type="string">Category</th>
+              <th class="num th-sortable" data-sort-key="_amount" data-sort-type="number">Amount</th>
               <th>Detail</th>
             </tr>
           </thead>
