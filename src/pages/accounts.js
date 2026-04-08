@@ -21,7 +21,7 @@ import {
 } from "../lib/accounts.js";
 import { consistencyStatus } from "../lib/analytics.js";
 import { fmtMoney, fmtDate, fmtDateTime, esc } from "../lib/format.js";
-import { openModal, closeModal, confirmDialog } from "../components/modal.js";
+import { openModal, closeModal, confirmDialog, notify } from "../components/modal.js";
 import { refreshPage } from "../main.js";
 
 // ---------- LIST ----------
@@ -497,7 +497,46 @@ function openAccountModal(account = null) {
       errEl.textContent = "Account size must be a positive number.";
       return;
     }
+    if (
+      data.dd_lock_offset != null &&
+      (!Number.isFinite(data.dd_lock_offset) || data.dd_lock_offset < 0)
+    ) {
+      errEl.textContent = "Lock offset must be zero or a positive number.";
+      return;
+    }
+    if (
+      data.consistency_pct != null &&
+      (!Number.isFinite(data.consistency_pct) ||
+        data.consistency_pct < 0 ||
+        data.consistency_pct > 100)
+    ) {
+      errEl.textContent = "Consistency limit must be between 0 and 100.";
+      return;
+    }
+    if (
+      data.trailing_dd != null &&
+      (!Number.isFinite(data.trailing_dd) || data.trailing_dd < 0)
+    ) {
+      errEl.textContent = "Trailing drawdown must be zero or a positive number.";
+      return;
+    }
+    if (
+      data.daily_loss_limit != null &&
+      (!Number.isFinite(data.daily_loss_limit) || data.daily_loss_limit < 0)
+    ) {
+      errEl.textContent = "Daily loss limit must be zero or a positive number.";
+      return;
+    }
+    if (
+      data.profit_target != null &&
+      (!Number.isFinite(data.profit_target) || data.profit_target < 0)
+    ) {
+      errEl.textContent = "Profit target must be zero or a positive number.";
+      return;
+    }
 
+    const submitBtn = form.querySelector('button[type="submit"]');
+    if (submitBtn) submitBtn.disabled = true;
     try {
       if (isEdit) {
         await updateAccount(account.id, data);
@@ -509,6 +548,8 @@ function openAccountModal(account = null) {
     } catch (err) {
       console.error(err);
       errEl.textContent = String(err.message || err);
+    } finally {
+      if (submitBtn) submitBtn.disabled = false;
     }
   });
 
@@ -771,6 +812,8 @@ async function openTransactionModal(accountId) {
     const paidForRaw = fd.get("paid_for_account_id");
     const paidForId =
       paidForRaw && paidForRaw !== "" ? Number(paidForRaw) : null;
+    const submitBtn = form.querySelector('button[type="submit"]');
+    if (submitBtn) submitBtn.disabled = true;
     try {
       await addTransaction(accountId, {
         type: fd.get("type"),
@@ -784,6 +827,8 @@ async function openTransactionModal(accountId) {
     } catch (err) {
       console.error(err);
       errEl.textContent = String(err.message || err);
+    } finally {
+      if (submitBtn) submitBtn.disabled = false;
     }
   });
   wrap
@@ -814,7 +859,11 @@ async function openTransferModal(sourceAccountId) {
     )
     .join("");
   if (!destOptions) {
-    alert("No other active accounts to transfer to. Create one first.");
+    await notify({
+      title: "No destination",
+      message:
+        "There are no other active accounts to transfer to. Create another account first.",
+    });
     return;
   }
 
@@ -872,6 +921,8 @@ async function openTransferModal(sourceAccountId) {
       errEl.textContent = "Pick a destination account.";
       return;
     }
+    const submitBtn = form.querySelector('button[type="submit"]');
+    if (submitBtn) submitBtn.disabled = true;
     try {
       await createTransfer({
         from_account_id: sourceAccountId,
@@ -885,6 +936,8 @@ async function openTransferModal(sourceAccountId) {
     } catch (err) {
       console.error(err);
       errEl.textContent = String(err.message || err);
+    } finally {
+      if (submitBtn) submitBtn.disabled = false;
     }
   });
   wrap

@@ -27,7 +27,7 @@ import {
   consistencyStatus,
 } from "../lib/analytics.js";
 import { lineChart } from "../components/charts.js";
-import { fmtMoney, fmtDateTime, esc } from "../lib/format.js";
+import { fmtMoney, fmtNumber, fmtDateTime, esc } from "../lib/format.js";
 import { getSetting, SETTING_KEYS } from "../lib/settings.js";
 
 export async function render() {
@@ -278,7 +278,7 @@ export async function render() {
                           <td><strong>${esc(p.instrument)}</strong>
                             <span class="badge ${p.direction}" style="margin-left:6px">${p.direction}</span>
                           </td>
-                          <td class="muted">@ ${p.entry_price}</td>
+                          <td class="muted">@ ${fmtNumber(p.entry_price, 4)}</td>
                           <td class="num">${(p.rr_planned || 0).toFixed(2)}R</td>
                         </tr>`
                       )

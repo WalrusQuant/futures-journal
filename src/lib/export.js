@@ -167,7 +167,14 @@ export async function restoreDb(dump) {
   // mid-restore (bad row shape, constraint violation, disk full, crash),
   // the rollback leaves the existing data untouched. Without this, a
   // failure after the DELETE loop would wipe the user's entire journal.
+  //
+  // defer_foreign_keys defers FK enforcement to COMMIT instead of per-row.
+  // We need this because the transactions table has a self-referencing
+  // linked_tx_id column for transfer pairs — when restoring, the
+  // transfer_out row references its transfer_in sibling whose row hasn't
+  // been inserted yet. Without deferral, the per-row INSERT would fail.
   await exec("BEGIN");
+  await exec("PRAGMA defer_foreign_keys = ON");
   try {
     for (const t of wipeOrder) {
       await exec(`DELETE FROM ${t}`);

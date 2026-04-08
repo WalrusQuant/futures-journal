@@ -7,10 +7,12 @@ import * as analytics from "./pages/analytics.js";
 import * as calendar from "./pages/calendar.js";
 import * as ledger from "./pages/ledger.js";
 import * as settings from "./pages/settings.js";
+import pkg from "../package.json";
 import { makePlaceholder } from "./pages/placeholder.js";
 import { getSetting, SETTING_KEYS } from "./lib/settings.js";
 import { setPrivacyMode } from "./lib/format.js";
 import { autoBackup } from "./lib/backup.js";
+import { toast } from "./components/toast.js";
 
 // Route table. Patterns may include :params, e.g. "/accounts/:id".
 // IMPORTANT: exact paths must precede their pattern siblings — the matcher
@@ -87,7 +89,7 @@ function shellHtml() {
       <aside class="sidebar">
         <div class="sidebar-brand">
           FUTURES JOURNAL
-          <small>v0.1 — opinionated</small>
+          <small>v${pkg.version} — opinionated</small>
         </div>
         <nav class="sidebar-nav">${links}</nav>
         <div class="sidebar-footer">local · sqlite · futures only</div>
@@ -151,12 +153,19 @@ async function bootstrap() {
     console.error("settings load failed:", err);
   }
   // Fire-and-forget auto-backup. Idempotent — only writes once per day.
-  // Don't block the first render on this.
+  // Don't block the first render on this. Failures surface as a toast
+  // because there's no other UI context at launch — without it the user
+  // would never know their backups stopped working until they needed one.
   autoBackup()
     .then((r) => {
       if (r.created) console.info("auto-backup:", r.name);
     })
-    .catch((err) => console.error("auto-backup failed:", err));
+    .catch((err) => {
+      console.error("auto-backup failed:", err);
+      toast.error(
+        `Auto-backup failed: ${err.message || err}. Check Settings → Backups.`
+      );
+    });
 }
 
 function mount() {

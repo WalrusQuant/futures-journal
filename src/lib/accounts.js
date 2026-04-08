@@ -370,8 +370,13 @@ export async function recomputeBalance(accountId) {
   let txDelta = 0;
   for (const r of txRows) {
     const def = TX_TYPES.find((t) => t.value === r.type);
-    const sign = def ? def.sign : -1;
-    txDelta += sign * (r.total || 0);
+    if (!def) {
+      // Loud failure beats silent corruption. If the schema CHECK is
+      // ever widened without updating TX_TYPES, balances would silently
+      // go wrong with the old `?? -1` default. Throwing surfaces it.
+      throw new Error(`Unknown transaction type in account ${accountId}: ${r.type}`);
+    }
+    txDelta += def.sign * (r.total || 0);
   }
 
   const tradeRows = await query(

@@ -122,6 +122,16 @@ export async function render() {
       </div>
     </div>
 
+    ${
+      monthCount === 0
+        ? `<div class="card empty-state" style="margin-top:var(--sp-4)">
+            <p class="muted">No closed trades this month${
+              accountId ? " on the selected account" : ""
+            }.</p>
+          </div>`
+        : ""
+    }
+
     <div class="card" style="margin-top:var(--sp-4)">
       <div class="cal-weekdays">
         ${WEEKDAYS.map((w) => `<div>${w}</div>`).join("")}

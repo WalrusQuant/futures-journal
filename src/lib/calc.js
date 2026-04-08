@@ -68,8 +68,12 @@ export function validateTradeShape(t) {
     return "Entry price must be a positive number.";
   if (!Number.isFinite(t.stop_price) || t.stop_price <= 0)
     return "Stop price must be a positive number.";
+  if (t.target_price != null && (!Number.isFinite(t.target_price) || t.target_price <= 0))
+    return "Target price must be a positive number.";
   if (!Number.isInteger(t.contracts) || t.contracts < 1)
     return "Contracts must be a positive integer.";
+  if (t.fees != null && (!Number.isFinite(t.fees) || t.fees < 0))
+    return "Fees must be zero or a positive number.";
   if (t.direction === "long" && t.stop_price >= t.entry_price)
     return "For a long trade, stop must be below entry.";
   if (t.direction === "short" && t.stop_price <= t.entry_price)
@@ -80,10 +84,18 @@ export function validateTradeShape(t) {
     if (t.direction === "short" && t.target_price >= t.entry_price)
       return "For a short trade, target must be below entry.";
   }
-  if (t.exit_price != null && !t.exit_time)
-    return "Exit time is required when exit price is set.";
+  if (t.exit_price != null) {
+    if (!Number.isFinite(t.exit_price) || t.exit_price <= 0)
+      return "Exit price must be a positive number.";
+    if (!t.exit_time) return "Exit time is required when exit price is set.";
+  }
   if (t.exit_time && t.exit_price == null)
     return "Exit price is required when exit time is set.";
+  if (t.exit_time && t.entry_time) {
+    // Both are ISO strings; lexical compare works for ISO 8601.
+    if (t.exit_time <= t.entry_time)
+      return "Exit time must be after entry time.";
+  }
   return null;
 }
 

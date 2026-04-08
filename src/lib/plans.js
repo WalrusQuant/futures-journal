@@ -50,8 +50,11 @@ export async function countPlansByStatus() {
 
 export async function getPlan(id) {
   const rows = await query(
-    `SELECT p.*, a.name AS account_name
+    `SELECT p.*, a.name AS account_name,
+            CASE WHEN p.trade_id IS NOT NULL AND t.id IS NULL THEN 1 ELSE 0 END
+              AS trade_deleted
      FROM plans p JOIN accounts a ON a.id = p.account_id
+     LEFT JOIN trades t ON t.id = p.trade_id
      WHERE p.id = ?`,
     [id]
   );

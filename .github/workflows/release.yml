@@ -1,0 +1,110 @@
+name: Release
+
+# Cross-platform build pipeline. Triggered by pushing a git tag matching
+# `v*` (e.g. `v1.0.0`). Produces a GitHub Release in *draft* state with
+# the macOS `.dmg` (universal binary, runs on both Apple Silicon and
+# Intel) and Windows `.msi` installer attached. Both unsigned — code
+# signing is deferred until launch traction justifies the certs.
+#
+# To cut a release:
+#   1. Bump version in package.json + src-tauri/Cargo.toml +
+#      src-tauri/tauri.conf.json. Commit.
+#   2. git tag v1.0.0 && git push origin v1.0.0
+#   3. Watch the Actions tab. ~15-20 min on cold cache, ~10 min warm.
+#   4. Review the draft release on GitHub, download the artifacts, test
+#      install on a real Mac and a real Windows machine.
+#   5. Publish the release manually from the GitHub UI.
+#
+# To test the pipeline before a real launch, push a throwaway tag like
+# `v0.0.1-test`. Delete the draft release + tag after.
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # macOS universal: one .dmg that runs on both arm64 and x86_64
+          # Macs. Built on the Apple Silicon runner with both Rust
+          # targets installed so Tauri can produce a fat binary.
+          - platform: macos-latest
+            target: universal-apple-darwin
+            rust-targets: aarch64-apple-darwin,x86_64-apple-darwin
+            args: --target universal-apple-darwin
+
+          # Windows x64: standard MSI installer via Tauri's WiX bundler.
+          - platform: windows-latest
+            target: x86_64-pc-windows-msvc
+            rust-targets: ''
+            args: ''
+
+    runs-on: ${{ matrix.platform }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node 20 + npm cache
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.rust-targets }}
+
+      - name: Cache cargo registry + target dir
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: ./src-tauri -> target
+          # Distinguish caches per platform/target so the macOS universal
+          # build doesn't poison the Windows cache and vice versa.
+          key: ${{ matrix.target }}
+
+      - name: Install npm dependencies
+        run: npm ci
+
+      - name: Build and bundle the app
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          # Use the pushed tag name as the release tag. tauri-action
+          # creates the release on the first matrix job and appends
+          # artifacts on subsequent jobs.
+          tagName: ${{ github.ref_name }}
+          releaseName: 'Futures Journal ${{ github.ref_name }}'
+          releaseBody: |
+            ## Futures Journal ${{ github.ref_name }}
+
+            Download the installer for your platform below.
+
+            ### macOS (universal — Apple Silicon + Intel)
+            1. Download the `.dmg`
+            2. Open it, drag **Futures Journal** to Applications
+            3. **First launch:** right-click the app in Applications → **Open** → confirm. (One-time bypass of Gatekeeper because the build is unsigned.)
+
+            ### Windows (x64)
+            1. Download the `.msi`
+            2. Double-click to install
+            3. **First launch:** if Windows SmartScreen says "Windows protected your PC", click **More info** → **Run anyway**. (One-time bypass because the build is unsigned.)
+
+            ### Notes
+            - All your data lives in your local app data folder. Updates won't touch it.
+            - Issues / questions: reply to your purchase receipt email.
+          # Draft = won't be visible to the public until you manually
+          # publish it from the GitHub UI. Lets you QA the build before
+          # users see it.
+          releaseDraft: true
+          prerelease: false
+          args: ${{ matrix.args }}

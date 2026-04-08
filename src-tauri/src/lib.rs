@@ -128,15 +128,66 @@ async fn save_image(app: tauri::AppHandle, source_path: String) -> Result<String
     Ok(dest.to_string_lossy().to_string())
 }
 
+// Defense-in-depth check for the freeform read/write commands. Even
+// though the JS callers only invoke these after a user-driven file
+// dialog (so the user is consenting to the path), we still want to
+// refuse anything outside the user's home directory and anything that
+// isn't a known journal export extension. This rules out the obvious
+// attack targets (`/etc/passwd`, `~/.ssh/authorized_keys`,
+// `C:\Windows\System32\...`, etc.) without breaking the export UX.
+fn validate_user_file_path(app: &tauri::AppHandle, path: &str) -> Result<PathBuf, String> {
+    let target = PathBuf::from(path);
+
+    // Extension allowlist — match the formats the journal actually exports.
+    let ext = target
+        .extension()
+        .and_then(|s| s.to_str())
+        .map(|s| s.to_lowercase())
+        .ok_or_else(|| "refusing to read/write file with no extension".to_string())?;
+    if ext != "csv" && ext != "json" && ext != "txt" {
+        return Err(format!(
+            "refusing to read/write file with extension '{}' (allowed: csv, json, txt)",
+            ext
+        ));
+    }
+
+    // Resolve the parent dir (the file may not exist yet on writes) and
+    // confirm it's somewhere under the user's home directory.
+    let parent = target
+        .parent()
+        .ok_or_else(|| "refusing path with no parent directory".to_string())?;
+    let canonical_parent = parent
+        .canonicalize()
+        .map_err(|e| format!("invalid parent directory: {}", e))?;
+    let home = app.path().home_dir().map_err(|e| e.to_string())?;
+    let canonical_home = home.canonicalize().map_err(|e| e.to_string())?;
+    if !canonical_parent.starts_with(&canonical_home) {
+        return Err("refusing to read/write file outside the user's home directory".into());
+    }
+
+    // Rebuild the full path against the canonicalized parent so we
+    // operate on the same location we just validated.
+    let filename = target
+        .file_name()
+        .ok_or_else(|| "refusing path with no filename".to_string())?;
+    Ok(canonical_parent.join(filename))
+}
+
 #[tauri::command]
-async fn write_text_file(path: String, contents: String) -> Result<(), String> {
-    fs::write(&path, contents).map_err(|e| e.to_string())?;
+async fn write_text_file(
+    app: tauri::AppHandle,
+    path: String,
+    contents: String,
+) -> Result<(), String> {
+    let safe_path = validate_user_file_path(&app, &path)?;
+    fs::write(&safe_path, contents).map_err(|e| e.to_string())?;
     Ok(())
 }
 
 #[tauri::command]
-async fn read_text_file(path: String) -> Result<String, String> {
-    fs::read_to_string(&path).map_err(|e| e.to_string())
+async fn read_text_file(app: tauri::AppHandle, path: String) -> Result<String, String> {
+    let safe_path = validate_user_file_path(&app, &path)?;
+    fs::read_to_string(&safe_path).map_err(|e| e.to_string())
 }
 
 #[tauri::command]

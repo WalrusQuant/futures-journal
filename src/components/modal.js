@@ -57,11 +57,18 @@ export function closeModal() {
 }
 
 // Promise-based confirm dialog. Tauri 2 webviews silently suppress native
-// window.confirm() on macOS (returns true without showing UI), so we have to
-// roll our own. Returns true if the user confirms, false otherwise.
+// window.confirm() AND window.alert() on macOS (returns true without
+// showing UI), so we have to roll our own.
+//
+// Returns true if the user confirms, false otherwise.
+//
+// Pass cancelLabel: null to suppress the cancel button entirely — use
+// for info/error notifications where there's nothing to cancel. The
+// notify() helper below is the convenience wrapper for that case.
 //
 // Usage:
 //   if (!(await confirmDialog({ message: "Delete this trade?" }))) return;
+//   await notify({ title: "Error", message: "Save failed." });
 export function confirmDialog({
   title = "Confirm",
   message,
@@ -92,18 +99,19 @@ export function confirmDialog({
     actions.style.justifyContent = "flex-end";
     actions.style.gap = "var(--sp-2)";
 
-    const cancelBtn = document.createElement("button");
-    cancelBtn.type = "button";
-    cancelBtn.textContent = cancelLabel;
-    cancelBtn.addEventListener("click", () => finish(false));
+    if (cancelLabel != null) {
+      const cancelBtn = document.createElement("button");
+      cancelBtn.type = "button";
+      cancelBtn.textContent = cancelLabel;
+      cancelBtn.addEventListener("click", () => finish(false));
+      actions.appendChild(cancelBtn);
+    }
 
     const confirmBtn = document.createElement("button");
     confirmBtn.type = "button";
     confirmBtn.textContent = confirmLabel;
     confirmBtn.className = danger ? "btn-danger" : "primary";
     confirmBtn.addEventListener("click", () => finish(true));
-
-    actions.appendChild(cancelBtn);
     actions.appendChild(confirmBtn);
     wrap.appendChild(actions);
 
@@ -115,8 +123,30 @@ export function confirmDialog({
       onClose: () => finish(false),
     });
 
-    // Focus the safe (cancel) button by default so Enter doesn't accidentally
-    // confirm a destructive action.
-    cancelBtn.focus();
+    // Focus the safe button by default so Enter doesn't accidentally
+    // confirm a destructive action. Without a cancel button, focus the
+    // OK button so Enter dismisses the dialog cleanly.
+    const focusTarget = wrap.querySelector(".form-actions button");
+    focusTarget?.focus();
+  });
+}
+
+// Single-button info / error dialog. Promise-based wrapper around
+// confirmDialog with the cancel button suppressed. Use this in place of
+// window.alert() — Tauri webviews suppress native alert() on macOS, so
+// the user would otherwise see nothing when the call fires.
+//
+// Usage:
+//   await notify({ title: "Error", message: "Could not save trade." });
+export function notify({
+  title = "Notice",
+  message,
+  okLabel = "OK",
+} = {}) {
+  return confirmDialog({
+    title,
+    message,
+    confirmLabel: okLabel,
+    cancelLabel: null,
   });
 }

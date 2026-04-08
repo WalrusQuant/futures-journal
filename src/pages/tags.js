@@ -162,6 +162,8 @@ function openTagModal(tag = null) {
       errEl.textContent = "Name is required.";
       return;
     }
+    const submitBtn = form.querySelector('button[type="submit"]');
+    if (submitBtn) submitBtn.disabled = true;
     try {
       if (isEdit) await updateTag(tag.id, data);
       else await createTag(data);
@@ -170,6 +172,8 @@ function openTagModal(tag = null) {
     } catch (err) {
       console.error(err);
       errEl.textContent = String(err.message || err);
+    } finally {
+      if (submitBtn) submitBtn.disabled = false;
     }
   });
 

@@ -59,8 +59,11 @@ export async function listTrades(filters = {}) {
 
 export async function getTrade(id) {
   const rows = await query(
-    `SELECT t.*, a.name AS account_name
+    `SELECT t.*, a.name AS account_name,
+            CASE WHEN t.plan_id IS NOT NULL AND p.id IS NULL THEN 1 ELSE 0 END
+              AS plan_deleted
      FROM trades t JOIN accounts a ON a.id = t.account_id
+     LEFT JOIN plans p ON p.id = t.plan_id
      WHERE t.id = ?`,
     [id]
   );

@@ -10,6 +10,7 @@ import { query } from "./db.js";
 import { tradeRisk } from "./calc.js";
 import { getInstrument, listInstruments } from "./instruments.js";
 import { computeDrawdownFloor } from "./accounts.js";
+import { fmtMoney } from "./format.js";
 
 // ---------- Data fetchers ----------
 
@@ -157,10 +158,10 @@ export function evaluateTradeRisk(ctx) {
         code: "daily_loss_limit",
         message:
           `Worst-case today would breach your daily loss limit by ` +
-          `$${overBy.toFixed(0)}.`,
+          `${fmtMoney(overBy)}.`,
         detail:
-          `Today realized ${fmtSigned(dpnl)}, open risk $${openRisk.toFixed(0)}, ` +
-          `this trade risks $${proposedRisk.toFixed(0)}. Limit is $${dll.toFixed(0)}.`,
+          `Today realized ${fmtMoney(dpnl, { signed: true })}, open risk ${fmtMoney(openRisk)}, ` +
+          `this trade risks ${fmtMoney(proposedRisk)}. Limit is ${fmtMoney(dll)}.`,
       });
     }
   }
@@ -209,13 +210,13 @@ export function evaluateTradeRisk(ctx) {
         message:
           `Stop-out would put the account below its ${modeLabel} drawdown floor.`,
         detail:
-          `Floor $${drawdown.floor.toFixed(0)}` +
+          `Floor ${fmtMoney(drawdown.floor)}` +
           (drawdown.mode !== "static"
-            ? ` (peak $${drawdown.peak.toFixed(0)}${
+            ? ` (peak ${fmtMoney(drawdown.peak)}${
                 drawdown.locked ? ", locked at start" : ""
               })`
             : "") +
-          `, worst-case balance $${worstBalance.toFixed(0)}.`,
+          `, worst-case balance ${fmtMoney(worstBalance)}.`,
       });
     }
   }
@@ -230,8 +231,8 @@ export function evaluateTradeRisk(ctx) {
         code: "risk_pct",
         message: `Risking ${(pct * 100).toFixed(1)}% of account size.`,
         detail:
-          `$${proposedRisk.toFixed(0)} on a ` +
-          `$${account.account_size.toFixed(0)} account. Most sizing rules say <2%.`,
+          `${fmtMoney(proposedRisk)} on a ` +
+          `${fmtMoney(account.account_size)} account. Most sizing rules say <2%.`,
       });
     }
   }
@@ -253,12 +254,6 @@ function drawdownModeLabel(mode) {
   if (mode === "eod_trailing") return "end-of-day trailing";
   if (mode === "intraday_trailing") return "intraday trailing";
   return "static";
-}
-
-function fmtSigned(n) {
-  if (n == null || !Number.isFinite(n)) return "$0";
-  const sign = n >= 0 ? "+" : "-";
-  return `${sign}$${Math.abs(n).toFixed(0)}`;
 }
 
 // Convenience: fetch everything needed for evaluation on a draft trade,

@@ -167,7 +167,9 @@ export async function renderDetail({ id }) {
           ${esc(plan.account_name)} · created ${fmtDate(plan.created_at)}
           ${
             plan.trade_id
-              ? ` · <a href="#/trades/${plan.trade_id}">→ Trade #${plan.trade_id}</a>`
+              ? plan.trade_deleted
+                ? ` · <span class="muted">→ Trade #${plan.trade_id} (deleted)</span>`
+                : ` · <a href="#/trades/${plan.trade_id}">→ Trade #${plan.trade_id}</a>`
               : ""
           }
         </div>
@@ -327,8 +329,11 @@ export async function renderForm(params = {}) {
       };
     }
   } else {
+    // Caller already filters `accounts` to active, non-bank entries.
+    // If the user's stored default is gone, fall through to the first
+    // remaining active account.
     const storedDefault = await getSetting(SETTING_KEYS.defaultAccountId);
-    let defaultId = accounts[0].id;
+    let defaultId = accounts[0]?.id ?? null;
     if (storedDefault) {
       const found = accounts.find((a) => a.id === Number(storedDefault));
       if (found) defaultId = found.id;
@@ -560,6 +565,8 @@ export async function renderForm(params = {}) {
         errEl.textContent = err;
         return;
       }
+      const submitBtn = form.querySelector('button[type="submit"]');
+      if (submitBtn) submitBtn.disabled = true;
       try {
         let savedId;
         if (isEdit) {
@@ -576,6 +583,8 @@ export async function renderForm(params = {}) {
       } catch (err) {
         console.error(err);
         errEl.textContent = String(err.message || err);
+      } finally {
+        if (submitBtn) submitBtn.disabled = false;
       }
     });
 

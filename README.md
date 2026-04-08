@@ -4,8 +4,6 @@ A desktop trading journal for futures traders that runs real prop-firm rule chec
 
 `Tauri 2` · `Vanilla JS` · `SQLite` · `Local-only`
 
-<!-- TODO: drop a dashboard screenshot here once the UI stabilizes -->
-
 ---
 
 ## Table of contents

@@ -19,7 +19,7 @@ import {
   saveImageFile,
   deleteImageFile,
 } from "../lib/images.js";
-import { openModal, confirmDialog } from "./modal.js";
+import { openModal, confirmDialog, notify } from "./modal.js";
 import { esc } from "../lib/format.js";
 import { registerPageCleanup } from "../main.js";
 
@@ -64,7 +64,10 @@ export async function mountImageGallery(
         await persist(stored);
       } catch (err) {
         console.error("save_image failed:", err);
-        alert("Failed to save image: " + (err.message || err));
+        await notify({
+          title: "Image upload failed",
+          message: `Could not save image: ${err.message || err}`,
+        });
       }
     }
     await render();
@@ -113,7 +116,10 @@ export async function mountImageGallery(
           await handleSourcePaths(sources);
         } catch (err) {
           console.error(err);
-          alert("Failed to add image: " + (err.message || err));
+          await notify({
+            title: "Image upload failed",
+            message: `Could not add image: ${err.message || err}`,
+          });
         }
       });
 

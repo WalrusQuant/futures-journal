@@ -25,6 +25,8 @@ import { confirmDialog } from "../components/modal.js";
 import { setPrivacyMode } from "../lib/format.js";
 import { refreshPage } from "../main.js";
 import { esc } from "../lib/format.js";
+import { appDataDir } from "@tauri-apps/api/path";
+import pkg from "../../package.json";
 
 export async function render() {
   const settings = await getAllSettings();
@@ -34,6 +36,14 @@ export async function render() {
     backups = await listBackups();
   } catch (err) {
     console.error("listBackups failed:", err);
+  }
+  // Resolve the actual platform-specific app data dir so the diagnostics
+  // panel doesn't lie on Windows. Trailing slash is included by appDataDir().
+  let dataDir = "";
+  try {
+    dataDir = await appDataDir();
+  } catch (err) {
+    console.error("appDataDir failed:", err);
   }
 
   const defaultAcctId = settings[SETTING_KEYS.defaultAccountId];
@@ -119,13 +129,15 @@ export async function render() {
       <h3 style="margin-bottom:var(--sp-3)">Diagnostics</h3>
       <dl class="kv">
         <dt>Database</dt>
-        <dd class="dim">~/Library/Application Support/com.adamwickwire.futuresjournal/futures-journal.db</dd>
+        <dd class="dim">${esc(dataDir)}futures-journal.db</dd>
         <dt>Images</dt>
-        <dd class="dim">~/Library/Application Support/com.adamwickwire.futuresjournal/images/</dd>
+        <dd class="dim">${esc(dataDir)}images/</dd>
+        <dt>Backups</dt>
+        <dd class="dim">${esc(dataDir)}backups/</dd>
         <dt>Backup format version</dt>
         <dd>${BACKUP_VERSION}</dd>
         <dt>App</dt>
-        <dd>Futures Journal v0.1 (opinionated)</dd>
+        <dd>Futures Journal v${esc(pkg.version)}</dd>
       </dl>
     </div>
   `;

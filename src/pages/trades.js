@@ -290,7 +290,9 @@ export async function renderDetail({ id }) {
           ${esc(trade.account_name)} · ${fmtDateTime(trade.entry_time)}
           ${
             trade.plan_id
-              ? ` · <a href="#/plans/${trade.plan_id}">from plan #${trade.plan_id}</a>`
+              ? trade.plan_deleted
+                ? ` · <span class="muted">from plan #${trade.plan_id} (deleted)</span>`
+                : ` · <a href="#/plans/${trade.plan_id}">from plan #${trade.plan_id}</a>`
               : ""
           }
         </div>
@@ -471,6 +473,8 @@ export async function renderDetail({ id }) {
               emotional_state: fd.get("emotional_state") || null,
               lessons: (fd.get("lessons") || "").trim() || null,
             };
+            const submitBtn = form.querySelector('button[type="submit"]');
+            if (submitBtn) submitBtn.disabled = true;
             try {
               await setReview(trade.id, data);
               // Reflect saved state locally.
@@ -496,6 +500,8 @@ export async function renderDetail({ id }) {
               console.error("review save failed:", err);
               const errEl = reviewCard.querySelector(".review-error");
               if (errEl) errEl.textContent = String(err.message || err);
+            } finally {
+              if (submitBtn) submitBtn.disabled = false;
             }
           });
         }
@@ -1118,53 +1124,59 @@ export async function renderForm(params = {}) {
         return;
       }
 
-      // Pre-trade risk check. Only blocks on new trades or when editing an
-      // open trade (closed-trade edits skip guardrails in updateRiskPanel).
-      if (!(isEdit && trade.status === "closed")) {
-        // Make sure we have an up-to-date assessment. If the user typed fast,
-        // the debounced one might be stale or not yet populated.
-        const account = accountById.get(draft.account_id);
-        const inst = currentInstrument();
-        if (account && inst) {
-          try {
-            latestAssessment = await assessDraft({
-              account,
-              instrument: inst,
-              draft,
-              excludeTradeId: isEdit ? trade.id : null,
-              instrumentMap,
-            });
-          } catch (assessErr) {
-            console.error("final risk assessment failed:", assessErr);
-          }
-        }
-        if (latestAssessment && latestAssessment.blockers.length > 0) {
-          const override = await promptRiskOverride(latestAssessment);
-          if (!override.proceed) return;
-          draft.risk_override = override.reason;
-        }
-      }
-
+      const submitBtn = form.querySelector('button[type="submit"]');
+      if (submitBtn) submitBtn.disabled = true;
       try {
-        let savedId;
-        if (isEdit) {
-          await updateTrade(trade.id, draft);
-          savedId = trade.id;
-        } else {
-          if (sourcePlan) draft.plan_id = sourcePlan.id;
-          savedId = await createTrade(draft);
-          if (sourcePlan) {
-            await setPlanStatus(sourcePlan.id, "taken", savedId);
+        // Pre-trade risk check. Only blocks on new trades or when editing an
+        // open trade (closed-trade edits skip guardrails in updateRiskPanel).
+        if (!(isEdit && trade.status === "closed")) {
+          // Make sure we have an up-to-date assessment. If the user typed fast,
+          // the debounced one might be stale or not yet populated.
+          const account = accountById.get(draft.account_id);
+          const inst = currentInstrument();
+          if (account && inst) {
+            try {
+              latestAssessment = await assessDraft({
+                account,
+                instrument: inst,
+                draft,
+                excludeTradeId: isEdit ? trade.id : null,
+                instrumentMap,
+              });
+            } catch (assessErr) {
+              console.error("final risk assessment failed:", assessErr);
+            }
+          }
+          if (latestAssessment && latestAssessment.blockers.length > 0) {
+            const override = await promptRiskOverride(latestAssessment);
+            if (!override.proceed) return;
+            draft.risk_override = override.reason;
           }
         }
-        await setTradeTags(savedId, tagPicker.getSelected());
-        if (!isEdit && galleryHandle) {
-          await galleryHandle.commitPending({ tradeId: savedId });
+
+        try {
+          let savedId;
+          if (isEdit) {
+            await updateTrade(trade.id, draft);
+            savedId = trade.id;
+          } else {
+            if (sourcePlan) draft.plan_id = sourcePlan.id;
+            savedId = await createTrade(draft);
+            if (sourcePlan) {
+              await setPlanStatus(sourcePlan.id, "taken", savedId);
+            }
+          }
+          await setTradeTags(savedId, tagPicker.getSelected());
+          if (!isEdit && galleryHandle) {
+            await galleryHandle.commitPending({ tradeId: savedId });
+          }
+          location.hash = `#/trades/${savedId}`;
+        } catch (err) {
+          console.error(err);
+          errEl.textContent = String(err.message || err);
         }
-        location.hash = `#/trades/${savedId}`;
-      } catch (err) {
-        console.error(err);
-        errEl.textContent = String(err.message || err);
+      } finally {
+        if (submitBtn) submitBtn.disabled = false;
       }
     });
 
@@ -1357,12 +1369,15 @@ function readQueryParam(name) {
 }
 
 async function pickDefaultAccountId(accounts) {
+  // Caller already filters `accounts` to active, non-bank entries.
+  // If the user's stored default is gone (deleted, archived, or now a
+  // bank account), fall through to the first remaining active account.
   const stored = await getSetting(SETTING_KEYS.defaultAccountId);
   if (stored) {
     const found = accounts.find((a) => a.id === Number(stored));
     if (found) return found.id;
   }
-  return accounts[0].id;
+  return accounts[0]?.id ?? null;
 }
 
 function nowLocalIso() {
