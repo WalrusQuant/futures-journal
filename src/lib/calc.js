@@ -86,3 +86,32 @@ export function validateTradeShape(t) {
     return "Exit price is required when exit time is set.";
   return null;
 }
+
+// Plans require both stop AND target — opinionated. A plan without a
+// target is just an entry idea, not a plan.
+export function validatePlanShape(p) {
+  if (!p.account_id) return "Account is required.";
+  if (!p.instrument) return "Instrument is required.";
+  if (!p.direction) return "Direction is required.";
+  if (!Number.isFinite(p.entry_price) || p.entry_price <= 0)
+    return "Entry price must be a positive number.";
+  if (!Number.isFinite(p.stop_price) || p.stop_price <= 0)
+    return "Stop price must be a positive number.";
+  if (!Number.isFinite(p.target_price) || p.target_price <= 0)
+    return "Target price is required for a plan.";
+  if (!Number.isInteger(p.contracts) || p.contracts < 1)
+    return "Contracts must be a positive integer.";
+  if (p.direction === "long") {
+    if (p.stop_price >= p.entry_price)
+      return "For a long, stop must be below entry.";
+    if (p.target_price <= p.entry_price)
+      return "For a long, target must be above entry.";
+  }
+  if (p.direction === "short") {
+    if (p.stop_price <= p.entry_price)
+      return "For a short, stop must be above entry.";
+    if (p.target_price >= p.entry_price)
+      return "For a short, target must be below entry.";
+  }
+  return null;
+}

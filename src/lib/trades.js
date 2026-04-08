@@ -134,6 +134,12 @@ export async function updateTrade(id, data) {
 export async function deleteTrade(id) {
   const existing = await getTrade(id);
   if (!existing) return;
+  // Any plans linked to this trade should revert to active so they can be
+  // re-taken. We don't have a real FK ON DELETE rule for this column.
+  await exec(
+    "UPDATE plans SET status = 'active', trade_id = NULL, updated_at = ? WHERE trade_id = ?",
+    [new Date().toISOString(), id]
+  );
   await exec("DELETE FROM trades WHERE id = ?", [id]);
   await recomputeBalance(existing.account_id);
 }

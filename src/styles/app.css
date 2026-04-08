@@ -306,6 +306,38 @@ td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
   margin-top: 4px;
 }
 
+/* Tab bar */
+.tab-bar {
+  display: flex;
+  gap: var(--sp-1);
+  border-bottom: 1px solid var(--border);
+  margin-bottom: var(--sp-4);
+}
+.tab {
+  padding: var(--sp-2) var(--sp-4);
+  color: var(--text-muted);
+  text-decoration: none;
+  border-bottom: 2px solid transparent;
+  font-size: var(--fs-md);
+  display: flex;
+  gap: var(--sp-2);
+  align-items: center;
+}
+.tab:hover {
+  color: var(--text);
+  text-decoration: none;
+  background: var(--bg-hover);
+}
+.tab.active {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+}
+
+.badge.active       { background: rgba(78, 168, 255, 0.13); color: var(--info); }
+.badge.taken        { background: rgba(34, 209, 119, 0.15); color: var(--profit); }
+.badge.invalidated  { background: rgba(255, 77, 94, 0.13); color: var(--loss); }
+.badge.expired      { background: var(--bg-hover); color: var(--text-dim); }
+
 /* Stat tiles */
 .stats-grid {
   display: grid;

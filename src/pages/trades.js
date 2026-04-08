@@ -5,6 +5,7 @@ import {
   updateTrade,
   deleteTrade,
 } from "../lib/trades.js";
+import { getPlan, setPlanStatus } from "../lib/plans.js";
 import { listAccounts } from "../lib/accounts.js";
 import {
   listInstruments,
@@ -240,6 +241,11 @@ export async function renderDetail({ id }) {
         </h1>
         <div class="muted" style="margin-top:4px">
           ${esc(trade.account_name)} · ${fmtDateTime(trade.entry_time)}
+          ${
+            trade.plan_id
+              ? ` · <a href="#/plans/${trade.plan_id}">from plan #${trade.plan_id}</a>`
+              : ""
+          }
         </div>
       </div>
       <div class="row-actions">
@@ -368,6 +374,13 @@ export async function renderForm(params = {}) {
     };
   }
 
+  // ?from_plan=ID prefills the form from a plan and links them on save.
+  const fromPlanId = readQueryParam("from_plan");
+  let sourcePlan = null;
+  if (fromPlanId && !isEdit) {
+    sourcePlan = await getPlan(fromPlanId);
+  }
+
   let trade;
   if (isEdit) {
     trade = await getTrade(params.id);
@@ -376,6 +389,23 @@ export async function renderForm(params = {}) {
         html: `<div class="card"><p>Trade not found. <a href="#/trades">Back</a></p></div>`,
       };
     }
+  } else if (sourcePlan) {
+    trade = {
+      account_id: sourcePlan.account_id,
+      instrument: sourcePlan.instrument,
+      direction: sourcePlan.direction,
+      entry_time: nowLocalIso(),
+      entry_price: sourcePlan.entry_price,
+      stop_price: sourcePlan.stop_price,
+      target_price: sourcePlan.target_price,
+      contracts: sourcePlan.contracts,
+      fees: 0,
+      exit_time: "",
+      exit_price: "",
+      confidence: "",
+      notes: sourcePlan.thesis || "",
+      plan_id: sourcePlan.id,
+    };
   } else {
     trade = {
       account_id: accounts[0].id,
@@ -421,8 +451,22 @@ export async function renderForm(params = {}) {
   const html = `
     <div class="page-header">
       <div>
-        <div class="crumbs"><a href="#/trades">← Trades</a></div>
-        <h1>${isEdit ? "Edit trade" : "New trade"}</h1>
+        <div class="crumbs">${
+          sourcePlan
+            ? `<a href="#/plans/${sourcePlan.id}">← Plan</a>`
+            : `<a href="#/trades">← Trades</a>`
+        }</div>
+        <h1>${isEdit ? "Edit trade" : sourcePlan ? "Take plan" : "New trade"}</h1>
+        ${
+          sourcePlan
+            ? `<div class="muted" style="margin-top:4px">From plan: ${esc(
+                sourcePlan.instrument
+              )} ${sourcePlan.direction} @ ${fmtNumber(
+                sourcePlan.entry_price,
+                4
+              )}</div>`
+            : ""
+        }
       </div>
     </div>
 
@@ -668,7 +712,11 @@ export async function renderForm(params = {}) {
           await updateTrade(trade.id, draft);
           location.hash = `#/trades/${trade.id}`;
         } else {
+          if (sourcePlan) draft.plan_id = sourcePlan.id;
           const id = await createTrade(draft);
+          if (sourcePlan) {
+            await setPlanStatus(sourcePlan.id, "taken", id);
+          }
           location.hash = `#/trades/${id}`;
         }
       } catch (err) {
@@ -685,6 +733,14 @@ export async function renderForm(params = {}) {
 }
 
 // ---------- helpers ----------
+
+function readQueryParam(name) {
+  const hash = location.hash;
+  const q = hash.indexOf("?");
+  if (q < 0) return null;
+  const sp = new URLSearchParams(hash.slice(q + 1));
+  return sp.get(name);
+}
 
 function nowLocalIso() {
   return new Date().toISOString();
