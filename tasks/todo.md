@@ -1,3 +1,197 @@
+# Phase 9 — Ship v1.0 for sale
+
+## Context
+
+Selling the app as a one-time $29 desktop download under the personal brand at `adamwickwire.com`. Specifically on a **subdomain** (main site is Next.js on Vercel, so a separate deployment or a new Vercel project wired to a subdomain under the same DNS). Positioning: "tool I built for my own prop trading, finally cleaned up enough to sell a copy." Honest, first-person voice. No separate brand identity.
+
+Zero new spend beyond LLC. Binaries ship **unsigned** with an in-page walkthrough of how to bypass the Mac Gatekeeper and Windows SmartScreen warnings. Signing defers to post-launch once demand is proven.
+
+**Payment processor: Lemon Squeezy** (Merchant of Record). Chosen specifically to eliminate sales-tax compliance — Wisconsin taxes prewritten software delivered electronically, and going direct via Stripe would require a WI seller's permit + ongoing quarterly filings + EU VAT exposure on any international sale. LS handles all of that as the legal seller. ~5% + 50¢ per transaction (~$1.95 on a $29 sale → ~$27.05 net) vs. ~$1.64 net cost on Stripe + Stripe Tax — the 31¢ delta is a no-brainer for eliminating recurring tax admin. Stripe stays for unrelated consulting income, completely separate.
+
+Buyer experience: land on subdomain → read the backstory → watch a 30-second video of the risk engine blocking a trade → click Buy → Lemon Squeezy hosted checkout → pay → LS sends a receipt email with download links and (optionally) a license key → install (one-time warning bypass) → first-run empty state guides them.
+
+**Hard constraint: launch in ~1 week of focused work, no open-ended polishing.**
+
+## Decisions the user still has to make
+
+- [ ] **Name.** Current working name is "Futures Journal" (in `tauri.conf.json`). Literal + simple is fine since the brand is the personal name. Top candidates: `Futures Journal`, `Prop Journal`, `Prop Rules`. Pick one before landing page copy is written.
+- [ ] **Subdomain.** `journal.adamwickwire.com` / `futures.adamwickwire.com` / `propjournal.adamwickwire.com` / `tools.adamwickwire.com`. Whatever matches the name decision.
+- [ ] **Launch price.** $29 locked, OR $29 with 72h `LAUNCH` promo at $19. Default to the promo — costs nothing and creates urgency.
+- [ ] **Refund window.** 14 days, no questions. (Recommended — matches indie norm and matches Lemon Squeezy's default refund flow.)
+- [x] **Payment processor: Lemon Squeezy** (decided). Stripe reserved for separate consulting work. ~~Stripe direct + Stripe Tax + WI seller's permit~~.
+- [ ] **Icon.** DIY in Figma vs Fiverr ($20–50, 24h turnaround). Non-blocking for the first build pipeline runs but blocking for a real launch.
+
+---
+
+## 9.1 — Cross-platform build pipeline
+
+**Goal:** every git tag push produces downloadable `.dmg` (macOS universal) and `.msi`/`.exe` (Windows x64) artifacts, unsigned, attached to a GitHub Release.
+
+- [ ] Write `.github/workflows/release.yml` using `tauri-apps/tauri-action@v0`
+  - Matrix: `macos-latest` (arm64), `macos-13` (x64, for intel compatibility — or skip and ship arm-only first), `windows-latest`
+  - Trigger: `push` to tags matching `v*`
+  - Produces a draft GitHub Release with artifacts attached
+- [ ] Test by pushing `v0.9.0-test` tag — confirm both artifacts build and download
+- [ ] Install the Mac `.dmg` on a real Mac. Verify the app launches after the Gatekeeper bypass dance. Screenshot the warning for the install guide.
+- [ ] Install the Windows `.exe` on a real Windows machine (or Azure VM / Parallels / friend's laptop). Verify the app launches after SmartScreen "Run anyway." Screenshot the warning for the install guide.
+- [ ] Fix anything that breaks (icons, bundle identifiers, Tauri plugin configs)
+- [ ] Confirm the DB migration 001 → 009 runs cleanly on a fresh install (no existing DB file)
+
+**Out of scope for this phase:** code signing, notarization, auto-updater. All deferred.
+
+---
+
+## 9.2 — App polish for v1.0
+
+**Goal:** the app is presentable to a paying stranger on first run. No new features — only the rough edges a new user will hit.
+
+- [ ] **Rename** (if changing from "Futures Journal"). Update `tauri.conf.json` `productName` + the window title + `package.json` name + any hardcoded references in the UI. Identifier (`com.adamwickwire.futuresjournal`) can stay — it's a stable reverse-DNS string and doesn't need to match the display name.
+- [ ] **Version bump** to `1.0.0` in `package.json`, `src-tauri/Cargo.toml`, `src-tauri/tauri.conf.json`
+- [ ] **Icon set.** Tauri generates all platform sizes from one square PNG: `cargo tauri icon path/to/1024.png`. Replace the default Tauri logo. Commit the generated icons.
+- [ ] **First-run empty state.** When `listAccounts()` returns empty on the Dashboard, render a welcome card instead of the blank Today panel: "Welcome. Start by creating your first account → [Accounts]". Same treatment on the Accounts list page.
+- [ ] **About screen.** Add an "About" row in the Settings sidebar. Shows: app version, migration version, DB file path, link to the sales page, copyright line, "made by Adam Wickwire" credit. Keep it tiny — <40 lines of markup.
+- [ ] **Empty-state audit.** Walk every list/table route and confirm there's a friendly empty state, not a blank card:
+  - Trades list, Plans list, Calendar, Tags, Analytics (already has this), Ledger (already has this), Transactions list on account detail
+- [ ] **Error message audit.** Grep for `throw new Error(` and `alert(` in `src/pages/` and `src/lib/`. Every user-facing error should be a sentence, not a stack trace fragment.
+- [ ] **Export + restore smoke test.** Back up a dev DB with real data via Settings → Backup. Wipe `futures-journal.db`. Relaunch the app (runs migrations clean). Restore from the backup file. Confirm everything is exactly as it was. This is the single most important pre-launch test — the "your data is yours" claim must hold.
+- [ ] **Privacy mode sanity check.** Turn it on, navigate every page, confirm no dollar values leak through. Especially in the new Ledger page, risk panel, and dashboard stat tiles added in Phases 7–8.
+- [ ] **First-account onboarding hint.** In the new-account modal for a brand new install, default-select `sim_funded` and show a one-liner help text: "Pick your account type. You can reclassify any time." Already there for category but may need tightening.
+
+**Out of scope:** keyboard shortcuts, accessibility beyond what already exists, visual redesign, any new features.
+
+---
+
+## 9.3 — Sales subdomain on Vercel
+
+**Goal:** `<subdomain>.adamwickwire.com` resolves to a single Next.js page in first-person voice, with a Buy button that hits Stripe.
+
+- [ ] **New Next.js project** (or a new route + vercel.json rewrite on the existing main site — decide based on how isolated you want deployments). Recommendation: separate project, keeps the main site deploy cadence independent of product updates.
+- [ ] **Wire the subdomain** in Vercel → Domains. Add the CNAME in your DNS provider. TTL low during setup in case DNS needs fixing.
+- [ ] **Content sections** (one page, long-scroll, anchor nav):
+  - [ ] **Hero** — first-person pitch in ~40 words. "Hey, I'm Adam. I trade futures on prop firm accounts. I built this because every journal I tried was built for stock traders and none of them could enforce an Apex trailing drawdown. After six months of using it myself, I'm selling a copy. $29, Mac or Windows, yours forever." Buy button + one screenshot.
+  - [ ] **The demo** — 30-second silent looping video of the risk engine blocking a trade that would breach drawdown. Autoplay, muted, no controls. This is the killer moment.
+  - [ ] **Why I built it** — 3 paragraphs of authentic backstory. Name the competitors (Tradezella, Edgewonk, TraderSync) and what was missing. No bashing, just honest frustrations.
+  - [ ] **What it does** — feature list with inline screenshots. Lean on the structure already in `README.md` — Accounts / Trades / Risk Engine / Ledger / Analytics / Dashboard. One screenshot per feature minimum.
+  - [ ] **How I actually use it** — a paragraph or two of your own workflow with the app on your real accounts. Screenshot with privacy mode on.
+  - [ ] **Who this is for / not for** — radically honest. Futures only. Prop firm focused. Mac/Win only. One-person support. Not for stocks or crypto. Not for teams.
+  - [ ] **Pricing** — $29 one-time, lifetime access, updates for 1 year via email notification (no auto-updater yet). Promo banner if running the `LAUNCH` code.
+  - [ ] **Install walkthrough (first-run warnings)** — screenshots of the Mac Gatekeeper dialog and the Windows SmartScreen dialog, with annotated arrows showing exactly where to click. Explain *why* (not a big company, not paying $200/yr for certs, signing will come later). Honest framing.
+  - [ ] **FAQ** — 8–10 Qs. Sample set: What does it actually do? Is my data private? Does it work offline? (yes, always) Do I get updates? (free updates for the first year via email) What if I stop getting updates? (SQLite file is yours forever, export works) Can I get a refund? (14 days, no questions) Why is it unsigned? Will you add [feature]? (maybe, email me) What platforms? Does it sync to my broker? (not yet, v1 is manual/CSV import coming)
+  - [ ] **About me + other tools** — short bio, photo, link back to `adamwickwire.com`. Stub section for future tools.
+  - [ ] **Footer** — terms link, privacy link, refund policy link, support email
+- [ ] **Legal pages** (can be on the same subdomain, separate routes):
+  - [ ] `/terms` — generate from a SaaS template (Termly, Iubenda) and trim
+  - [ ] `/privacy` — note that the app itself collects nothing, but the website uses Plausible/PostHog analytics and Stripe for payment
+  - [ ] `/refund` — 14 days, no questions, refund via Stripe direct
+- [ ] **Analytics** — drop Plausible or PostHog onto the page. Do NOT use Google Analytics — it contradicts the "local-first / privacy-respecting" positioning.
+- [ ] **Favicon + OpenGraph/Twitter meta tags** — a single OG image showing the dashboard screenshot with the app name overlaid. Social sharing matters for indie launches.
+
+---
+
+## 9.4 — Lemon Squeezy + fulfillment
+
+**Goal:** buyer clicks Buy → pays via LS hosted checkout → gets download links + license key within 30 seconds. Zero sales-tax compliance work because LS is the Merchant of Record.
+
+- [ ] **Sign up for Lemon Squeezy** at lemonsqueezy.com. Free, ~10 minutes. Connect bank account for payouts (monthly).
+- [ ] **Create a Store** in the LS dashboard. Store name = your brand name (e.g. "Adam Wickwire Tools" or just your personal brand). Store handle becomes part of the checkout URL.
+- [ ] **Create the Product.**
+  - Type: **Single Payment** (not subscription)
+  - Name: `[Product name] — Lifetime License`
+  - Price: `$29.00 USD` (or whatever you settle on)
+  - Description: short pitch + version note
+  - Variant: just the one default variant
+- [ ] **Enable License Keys on the product.** Free, built-in. LS will auto-generate a unique key per purchase and include it in the receipt email. You don't have to wire validation in the app for v1 (honor system) — but the keys exist if you ever want to add it later. Configure: `Number of activations: 1`, `Expires: never`.
+- [ ] **Configure the receipt email** in LS Settings → Emails. Customize the body to include: "Thanks for buying [Product]. Download links: [Mac] [Windows]. First-run install instructions: [link to subdomain install section]. Your license key (save this): {license_key}. Reply to this email for support — it goes to me directly." LS supports template variables.
+- [ ] **Configure tax handling.** In Settings → Tax. Confirm "Lemon Squeezy collects and remits tax" is enabled (this is the default for MoR mode). No further action — LS auto-detects buyer location, applies the right rate, files the returns. You owe nothing, file nothing, register for nothing.
+- [ ] **Host the binaries.** Pick one:
+  - **GitHub Releases** (free, public URLs, already integrated with the 9.1 pipeline) — simplest. The Mac and Windows assets uploaded by the GH Action are directly linkable; just paste those URLs into the LS receipt email.
+  - **Cloudflare R2** ($0 up to 10 GB egress, cleaner URLs, worth it if you don't want the binaries visible on a public GitHub Releases page). Upload manually or wire a script.
+  - **LS file delivery** — Lemon Squeezy can host the files itself and serve them only to verified buyers via the Customer Portal. More secure but adds an upload step on every release. **Recommended if you care about controlling distribution.**
+- [ ] **Decide where the buyer lands post-purchase.** Two options:
+  - **Option A (simplest):** Configure LS to redirect to `<subdomain>/thanks` after checkout. That page is a static "Thanks for buying! Your download links and license key are in the receipt email — check your inbox. If you don't see it, check spam, or email me." No session validation needed.
+  - **Option B (slicker):** Build a `<subdomain>/thanks?order_id=...` page that calls LS's API to fetch order details server-side and shows the download links + license key inline. More work, slightly nicer UX. Defer to post-launch unless you've already got time.
+- [ ] **Embed checkout on the sales page.** LS supports two modes:
+  - **Hosted checkout:** the Buy button is just a link to `https://[your-store].lemonsqueezy.com/buy/[variant-id]`. Opens in a new tab. Zero JS needed.
+  - **Overlay checkout:** drop the LS overlay JS snippet on the page; clicking Buy opens the checkout in a modal without leaving your subdomain. **Recommended** — keeps the buyer on your site.
+- [ ] **Customer Portal** — LS gives every buyer a free portal to access their license keys, downloads, and invoices. Linked from the receipt email automatically. Zero work to set up. Mention it in the FAQ on the sales page so buyers know they have it.
+- [ ] **End-to-end test** — use LS's test mode (separate test products + test card numbers) to simulate the full flow: click Buy → fill checkout → "pay" → receive receipt → click download links → install the app. Confirm everything works. Then flip the product to live mode.
+
+**What this eliminates from the original Stripe plan:**
+- ~~Wisconsin seller's permit registration~~
+- ~~Stripe Tax setup~~
+- ~~Quarterly WI sales tax filings forever~~
+- ~~EU VAT exposure on international sales~~
+- ~~Manual chargeback dispute paperwork~~
+- ~~Building license key issuance from scratch~~ (LS does it free)
+
+---
+
+## 9.5 — Marketing assets
+
+**Goal:** real assets to drop into the landing page and social posts.
+
+- [ ] **Dashboard screenshot** — hero shot. Privacy mode off. Real-ish data (use the Python seeder). 1600×1000 or similar, crisp, no OS chrome.
+- [ ] **Risk engine screenshot** — the panel showing a blocker firing. Caption this as "the reason the app exists."
+- [ ] **Ledger page screenshot** — the 7 totals tiles plus the real-money curve.
+- [ ] **Analytics screenshot** — the equity curve plus the R-distribution.
+- [ ] **Mobile-responsive images** — same content, portrait crop, for landing on phones.
+- [ ] **30-second demo video** — screen recording (QuickTime or OBS), no audio, shows:
+  1. Open the trade form on a sim-funded account
+  2. Start filling in a trade that will breach the drawdown floor
+  3. Risk panel turns red, blocker appears: "Stop-out would put the account below its trailing drawdown floor"
+  4. Fade out with the pitch line
+  Export as MP4 (h.264), under 5 MB, loopable.
+- [ ] **One-sentence taglines** (3 variants to A/B in the launch post):
+  - "The futures journal that blocks trades that would break your prop firm's rules."
+  - "A journal I built for my own prop trading, because none of the existing ones could enforce a trailing drawdown."
+  - "Stop-out protection for futures traders. $29, yours forever, runs on your own machine."
+
+---
+
+## 9.6 — Soft launch + first-48h monitoring
+
+**Goal:** put it in front of the narrowest audience most likely to buy, capture signal, fix breakage fast.
+
+- [ ] **Post 1: your own Twitter/X** — the backstory thread. "I trade futures on prop firm accounts. Every journal was built for stock traders. I spent six months building my own that actually enforces my firm's rules. Today I'm selling a copy for $29. [screenshots + video + link]"
+- [ ] **Post 2: r/FuturesTrading or r/Daytrading** — **read self-promo rules first** (both subs require a history of non-promotional posts). If you don't have post karma there, ask a friend with karma to share it, or buy nothing — just skip.
+- [ ] **Post 3: a prop firm Discord** you're in. Ask the mod first if self-promo is allowed. Frame as "I built this for my own trading, just launched it." Don't link bomb.
+- [ ] **Monitor support email** — respond within 4 hours during the first 48h. Bug reports get a "fix incoming" reply and a hotfix release the same day if possible.
+- [ ] **Keep a launch log** in `tasks/` — every bug reported, every FAQ question asked, every refund reason. This is data for v1.1 priorities.
+- [ ] **Decision point at 72h:** how many sales? What did buyers complain about? Do we invest in signing certs + real marketing next, or pivot the positioning?
+
+---
+
+## Out of scope for v1.0 (defer, don't block)
+
+- Code signing (macOS Apple Developer Program, Windows cert) — $200+/yr, add only if launch traction justifies it
+- Auto-updater (requires signed packages on macOS anyway) — use email notifications for updates
+- License key validation in the app — honor system at v1, but LS issues keys per purchase for free, so adding validation later is a one-API-call change
+- CSV broker import (Tradovate, NinjaTrader exports) — v1.1 candidate, most-requested feature likely
+- Direct broker API sync (Tradovate REST, etc.) — v1.5+, months away
+- Subscription tier for continuous data sync — v2+, proves the one-time sale first
+- Linux builds — skip entirely unless a paying customer specifically asks
+- A real docs site (separate domain, full reference) — inline on the landing page is enough for v1
+- Affiliate program — LS has it built in for free, but enable only if a relevant prop-firm influencer expresses interest
+- Community (Discord, forum) — reactive support email only at this stage; communities are overrated pre-PMF
+- Teams / multi-user / cloud sync — the "local-first, yours forever" positioning is the whole point, don't dilute it
+
+---
+
+## What Claude can do next (pick any when you come back)
+
+When you pick this back up, here's what I can execute against this plan without needing additional clarification:
+
+1. **Write the GitHub Actions `release.yml` workflow** for cross-platform builds (9.1). ~1 hour, produces a working unsigned build pipeline.
+2. **Draft the full first-person sales page copy** for the subdomain (9.3). I'll fill in placeholders where real screenshots / video / backstory specifics need your input.
+3. **Audit the app for v1.0 polish items** (9.2). I'll grep, read, and produce a concrete checklist of every empty state, error message, and first-run rough edge so you can chew through it.
+4. **Scaffold the new Next.js project** for the subdomain (9.3). Hero, features, FAQ, legal routes, Plausible wired, OG image tags, Tailwind or plain CSS depending on your preference.
+5. **Write the Lemon Squeezy fulfillment flow** — either the simple `/thanks` static page or the slicker `/thanks?order_id=...` page that calls the LS API server-side to render download links + license key inline (9.4).
+6. **Draft the launch post copy** for Twitter / Reddit / Discord (9.6).
+
+Pick one and we can go. Default recommendation if you're unsure: start with #1 (build pipeline) because everything else depends on having real binaries in hand.
+
+---
+
 # Phase 8 — Real money ledger & account categories
 
 Five sub-phases, ordered so each one ships independently and the app is in a working state after each commit:
