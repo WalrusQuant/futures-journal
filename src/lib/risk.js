@@ -8,7 +8,7 @@
 // contract: users who haven't configured a rule shouldn't be nagged about it.
 import { query } from "./db.js";
 import { tradeRisk } from "./calc.js";
-import { getInstrument } from "./instruments.js";
+import { getInstrument, listInstruments } from "./instruments.js";
 
 // ---------- Data fetchers ----------
 
@@ -41,10 +41,28 @@ export async function dailyPnl(accountId, date = new Date()) {
   );
 }
 
-// All open trades on an account joined with their instrument rows, so we can
-// compute per-trade risk. Excludes a trade by id (used when editing, to avoid
-// double-counting the trade being edited).
-export async function openTradesWithRisk(accountId, excludeTradeId = null) {
+// Fetch every instrument once and return as a Map keyed by symbol. The
+// instruments table is tiny (~17 rows) and never changes at runtime, so
+// call this once per render and pass the Map to openTradesWithRisk() to
+// avoid N+1 queries when many accounts each have several open trades.
+export async function loadInstrumentMap() {
+  const rows = await listInstruments();
+  const map = new Map();
+  for (const r of rows) map.set(r.symbol, r);
+  return map;
+}
+
+// All open trades on an account with their dollar risk computed. Excludes
+// a trade by id (used when editing, to avoid double-counting the trade
+// being edited).
+//
+// Accepts an optional pre-fetched instrumentMap to avoid N+1 queries. When
+// omitted it falls back to per-trade getInstrument() calls — acceptable
+// for one-off use but not for any render loop over multiple accounts.
+export async function openTradesWithRisk(
+  accountId,
+  { excludeTradeId = null, instrumentMap = null } = {}
+) {
   const rows = await query(
     `SELECT * FROM trades WHERE account_id = ? AND status = 'open'`,
     [accountId]
@@ -52,7 +70,9 @@ export async function openTradesWithRisk(accountId, excludeTradeId = null) {
   const open = [];
   for (const t of rows) {
     if (excludeTradeId != null && t.id === excludeTradeId) continue;
-    const inst = await getInstrument(t.instrument);
+    const inst = instrumentMap
+      ? instrumentMap.get(t.instrument)
+      : await getInstrument(t.instrument);
     const risk = tradeRisk(t, inst);
     open.push({
       trade: t,
@@ -202,14 +222,26 @@ function fmtSigned(n) {
 // Convenience: fetch everything needed for evaluation on a draft trade,
 // then evaluate. Returns { blockers, warnings, computed } where computed
 // exposes the intermediate numbers so the UI can show the preview.
-export async function assessDraft({ account, instrument, draft, excludeTradeId = null }) {
+//
+// Callers should pass a pre-built `instrumentMap` (use loadInstrumentMap
+// once per render session) to avoid re-fetching the instruments table on
+// every debounced keystroke. If omitted, we load it here as a fallback.
+export async function assessDraft({
+  account,
+  instrument,
+  draft,
+  excludeTradeId = null,
+  instrumentMap = null,
+}) {
   const risk = tradeRisk(draft, instrument);
   const proposedRisk = risk ? risk.dollars : 0;
   const proposedContracts = draft.contracts || 0;
 
+  const map = instrumentMap || (await loadInstrumentMap());
+
   const [dpnl, openEntries] = await Promise.all([
     dailyPnl(account.id),
-    openTradesWithRisk(account.id, excludeTradeId),
+    openTradesWithRisk(account.id, { excludeTradeId, instrumentMap: map }),
   ]);
   const { riskDollars: openRisk, contracts: openContracts } =
     summarizeOpen(openEntries);

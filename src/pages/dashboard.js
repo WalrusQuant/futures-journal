@@ -5,7 +5,12 @@ import {
   countTradesNeedingReview,
 } from "../lib/trades.js";
 import { listPlans, countPlansByStatus } from "../lib/plans.js";
-import { dailyPnl, openTradesWithRisk, summarizeOpen } from "../lib/risk.js";
+import {
+  dailyPnl,
+  openTradesWithRisk,
+  summarizeOpen,
+  loadInstrumentMap,
+} from "../lib/risk.js";
 import {
   summarizeTrades,
   equityCurve,
@@ -57,15 +62,23 @@ export async function render() {
   // that account has configured (daily loss limit, trailing drawdown,
   // max contracts). Every active account gets a card — safety panel should
   // err toward showing more, not less.
-  const needsReviewCount = await countTradesNeedingReview();
-  const planCounts = await countPlansByStatus();
+  //
+  // These four queries are independent — run them in parallel instead of
+  // sequentially. Also load the instruments table once and share the map
+  // across every account's open-trade risk calculation to avoid an N+1
+  // query loop (one getInstrument per open trade per account).
+  const [needsReviewCount, planCounts, instrumentMap] = await Promise.all([
+    countTradesNeedingReview(),
+    countPlansByStatus(),
+    loadInstrumentMap(),
+  ]);
   const activePlansCount = planCounts.active || 0;
 
   const todayCards = await Promise.all(
     accounts.map(async (a) => {
       const [dpnl, openEntries] = await Promise.all([
         dailyPnl(a.id),
-        openTradesWithRisk(a.id),
+        openTradesWithRisk(a.id, { instrumentMap }),
       ]);
       const { riskDollars: openRisk, contracts: openContracts } =
         summarizeOpen(openEntries);

@@ -35,7 +35,7 @@ import {
   fmtDateTime,
   esc,
 } from "../lib/format.js";
-import { refreshPage } from "../main.js";
+import { refreshPage, registerPageCleanup } from "../main.js";
 
 // ---------- LIST ----------
 
@@ -896,6 +896,10 @@ export async function renderForm(params = {}) {
 
     // Account cache for risk eval, keyed by id.
     const accountById = new Map(accounts.map((a) => [a.id, a]));
+    // Instruments are already fetched at render time; build a symbol→row
+    // map once and hand it to assessDraft on every debounced tick so the
+    // risk eval doesn't re-fetch the instruments table each keystroke.
+    const instrumentMap = new Map(instruments.map((i) => [i.symbol, i]));
     // Latest risk assessment, updated by updateRiskPanel(). Submit reads this
     // instead of re-running the async eval.
     let latestAssessment = null;
@@ -1006,6 +1010,13 @@ export async function renderForm(params = {}) {
     // shape to be evaluable (account + instrument + prices + contracts).
     let riskTimer = null;
     let riskSeq = 0;
+    // If the user navigates away before the debounced timer fires, the
+    // pending async callback would set innerHTML on a detached DOM node.
+    // Cancel the timer and invalidate the seq so the async body bails out.
+    registerPageCleanup(() => {
+      if (riskTimer) clearTimeout(riskTimer);
+      riskSeq = Number.MAX_SAFE_INTEGER;
+    });
     function updateRiskPanel() {
       if (riskTimer) clearTimeout(riskTimer);
       riskTimer = setTimeout(async () => {
@@ -1039,6 +1050,7 @@ export async function renderForm(params = {}) {
             instrument: inst,
             draft,
             excludeTradeId: isEdit ? trade.id : null,
+            instrumentMap,
           });
           // Discard stale results if the user kept typing.
           if (mySeq !== riskSeq) return;
@@ -1116,6 +1128,7 @@ export async function renderForm(params = {}) {
               instrument: inst,
               draft,
               excludeTradeId: isEdit ? trade.id : null,
+              instrumentMap,
             });
           } catch (assessErr) {
             console.error("final risk assessment failed:", assessErr);

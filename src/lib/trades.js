@@ -18,14 +18,15 @@ export async function listTrades(filters = {}) {
     where.push("t.instrument = ?");
     params.push(filters.instrument);
   }
-  if (filters.status) {
-    where.push("t.status = ?");
-    params.push(filters.status);
-  }
   if (filters.needsReview) {
-    // "Needs review" implies closed; override any conflicting status filter.
+    // "Needs review" implies closed — it takes precedence over any
+    // conflicting status filter rather than AND-ing the two together
+    // (which would produce an empty set when status='open').
     where.push("t.status = 'closed'");
     where.push("t.review_completed = 0");
+  } else if (filters.status) {
+    where.push("t.status = ?");
+    params.push(filters.status);
   }
   if (filters.planned === "planned") {
     where.push("t.plan_id IS NOT NULL");
@@ -118,7 +119,7 @@ export async function updateTrade(id, data) {
       entry_price = ?, stop_price = ?, target_price = ?, contracts = ?,
       exit_time = ?, exit_price = ?, fees = ?,
       pnl_points = ?, pnl_dollars = ?, r_multiple = ?, status = ?,
-      confidence = ?, notes = ?, updated_at = ?
+      confidence = ?, notes = ?, risk_override = ?, updated_at = ?
      WHERE id = ?`,
     [
       merged.account_id,
@@ -138,6 +139,7 @@ export async function updateTrade(id, data) {
       computed.status,
       merged.confidence ?? null,
       merged.notes || null,
+      merged.risk_override ?? null,
       now,
       id,
     ]

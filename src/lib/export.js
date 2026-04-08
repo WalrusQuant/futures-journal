@@ -149,9 +149,6 @@ export async function restoreDb(dump) {
     "settings",
     "accounts",
   ];
-  for (const t of wipeOrder) {
-    await exec(`DELETE FROM ${t}`);
-  }
 
   // Insert in dependency order.
   const insertOrder = [
@@ -165,18 +162,38 @@ export async function restoreDb(dump) {
     "transactions",
     "settings",
   ];
-  for (const t of insertOrder) {
-    const rows = dump[t] || [];
-    for (const row of rows) {
-      const cols = Object.keys(row);
-      if (cols.length === 0) continue;
-      const placeholders = cols.map(() => "?").join(", ");
-      const values = cols.map((c) => row[c]);
-      await exec(
-        `INSERT INTO ${t} (${cols.join(", ")}) VALUES (${placeholders})`,
-        values
-      );
+
+  // Wrap the whole wipe+insert in a transaction. If anything throws
+  // mid-restore (bad row shape, constraint violation, disk full, crash),
+  // the rollback leaves the existing data untouched. Without this, a
+  // failure after the DELETE loop would wipe the user's entire journal.
+  await exec("BEGIN");
+  try {
+    for (const t of wipeOrder) {
+      await exec(`DELETE FROM ${t}`);
     }
+    for (const t of insertOrder) {
+      const rows = dump[t] || [];
+      for (const row of rows) {
+        const cols = Object.keys(row);
+        if (cols.length === 0) continue;
+        const placeholders = cols.map(() => "?").join(", ");
+        const values = cols.map((c) => row[c]);
+        await exec(
+          `INSERT INTO ${t} (${cols.join(", ")}) VALUES (${placeholders})`,
+          values
+        );
+      }
+    }
+    await exec("COMMIT");
+  } catch (err) {
+    try {
+      await exec("ROLLBACK");
+    } catch (rollbackErr) {
+      // If rollback itself fails, log it but surface the original error.
+      console.error("restore rollback failed:", rollbackErr);
+    }
+    throw err;
   }
 }
 
