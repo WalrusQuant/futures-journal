@@ -148,6 +148,22 @@ Buyer experience: land on subdomain → read the backstory → watch a 30-second
 
 ---
 
+## 9.X — User-facing knowledge base (Phase 1)
+
+**Goal:** ship v1.0 with a real, in-repo knowledge base at `docs/` that explains how to install, set up, and use the app — including the things that confuse new users (the two-ledger model, how to log a scale-out, configuring firm rules). Portable to a docs subdomain when the marketing site is built.
+
+- [x] Plan written: `~/.claude/plans/cheeky-jumping-kahn.md`
+- [x] Spike: `docs/README.md`, `docs/getting-started/quickstart.md`, `docs/concepts/the-two-ledgers.md`
+- [ ] Phase 1 fill-in: 24 remaining files across `getting-started/`, `concepts/`, `guides/`, and `faq.md` (~27 files total at Phase 1 completion)
+- [ ] Update root `README.md` to link to `docs/`
+- [ ] Update `CLAUDE.md` to note `docs/` exists for future Claude sessions
+- [ ] Cold-read test: open `docs/getting-started/quickstart.md` as a brand-new user and walk through it. Every label and step should match the live app.
+- [ ] Scale-out walkthrough test: follow `docs/guides/logging-a-scale-out-trade.md` against the Tradeify MES trade. Math should match what Tradeify shows.
+
+**Phase 2 (deferred, post-launch):** the `docs/reference/` tree — every page, form, field, URL parameter, keyboard shortcut, instrument, drawdown combination. Written after real customers expose what needs the most depth. ~20 files.
+
+---
+
 ## 9.6 — Soft launch + first-48h monitoring
 
 **Goal:** put it in front of the narrowest audience most likely to buy, capture signal, fix breakage fast.
@@ -170,7 +186,8 @@ Buyer experience: land on subdomain → read the backstory → watch a 30-second
 - Direct broker API sync (Tradovate REST, etc.) — v1.5+, months away
 - Subscription tier for continuous data sync — v2+, proves the one-time sale first
 - Linux builds — skip entirely unless a paying customer specifically asks
-- A real docs site (separate domain, full reference) — inline on the landing page is enough for v1
+- A real docs **site** (separate domain, hosted) — Phase 1 of the KB ships in-repo at `docs/` and is portable to a subdomain whenever wanted; standing up the actual subdomain is the marketing-site work
+- **Phase 2 of the KB** — exhaustive `docs/reference/` (every page, form, field, URL param). Defer until post-launch when real customer questions can inform what to write. Phase 1 (concepts + guides + FAQ) is sufficient for v1.0 — see `docs/README.md`
 - Affiliate program — LS has it built in for free, but enable only if a relevant prop-firm influencer expresses interest
 - Community (Discord, forum) — reactive support email only at this stage; communities are overrated pre-PMF
 - Teams / multi-user / cloud sync — the "local-first, yours forever" positioning is the whole point, don't dilute it

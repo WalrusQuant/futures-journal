@@ -13,6 +13,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 There is no test suite and no linter configured.
 
+## User-facing docs
+
+End-user knowledge base lives in `docs/` (created in Phase 9.X of `tasks/todo.md`). Phase 1 covers `getting-started/`, `concepts/`, `guides/`, and `faq.md`. Phase 2 (the exhaustive `reference/` tree) is deferred until post-launch. When you change user-visible behavior, button labels, form fields, or workflows, **update the relevant docs file in the same commit** — the KB exists in-repo specifically so it can't drift from the code. Voice/structure templates: `docs/README.md` (index), `docs/getting-started/quickstart.md` (guide style), `docs/concepts/the-two-ledgers.md` (concept style).
+
 ## Architecture
 
 **Stack:** Tauri 2 + vanilla JS (no framework, no bundled UI lib) + SQLite via `@tauri-apps/plugin-sql`. Vite serves `src/` with `root: "src"` and builds to `dist/`.
