@@ -1,0 +1,254 @@
+@import "tailwindcss";
+
+@theme {
+  --color-bg: #0a0e13;
+  --color-surface: #0f141b;
+  --color-surface-2: #141b25;
+  --color-border: #1a2230;
+  --color-border-strong: #273142;
+  --color-text: #e6edf3;
+  --color-muted: #8b95a5;
+  --color-dim: #5b6472;
+  --color-accent: #5ee0e5;
+  --color-accent-dim: #3aa7ab;
+  --color-danger: #ff5a5a;
+  --color-success: #4ade80;
+
+  --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, "SFMono-Regular", Menlo, monospace;
+}
+
+@layer base {
+  html {
+    background: var(--color-bg);
+    color: var(--color-text);
+    color-scheme: dark;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  body {
+    font-family: var(--font-sans);
+    background: var(--color-bg);
+    color: var(--color-text);
+  }
+
+  ::selection {
+    background: color-mix(in srgb, var(--color-accent) 35%, transparent);
+    color: var(--color-text);
+  }
+
+  a {
+    color: inherit;
+    text-decoration: none;
+  }
+
+  hr {
+    border-color: var(--color-border);
+  }
+
+  code, pre, kbd, samp {
+    font-family: var(--font-mono);
+  }
+}
+
+@layer components {
+  .container-page {
+    @apply mx-auto w-full max-w-6xl px-6;
+  }
+
+  .container-narrow {
+    @apply mx-auto w-full max-w-3xl px-6;
+  }
+
+  .btn-primary {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.75rem 1.25rem;
+    background: var(--color-accent);
+    color: #04181a;
+    font-weight: 600;
+    border-radius: 6px;
+    border: 1px solid var(--color-accent);
+    transition: transform 120ms ease, box-shadow 120ms ease, background 120ms ease;
+  }
+  .btn-primary:hover {
+    background: color-mix(in srgb, var(--color-accent) 88%, white);
+    box-shadow: 0 0 0 4px color-mix(in srgb, var(--color-accent) 18%, transparent);
+  }
+
+  .btn-ghost {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.75rem 1.25rem;
+    color: var(--color-text);
+    font-weight: 500;
+    border-radius: 6px;
+    border: 1px solid var(--color-border-strong);
+    background: transparent;
+    transition: background 120ms ease, border-color 120ms ease;
+  }
+  .btn-ghost:hover {
+    background: var(--color-surface);
+    border-color: var(--color-accent-dim);
+  }
+
+  .card {
+    background: var(--color-surface);
+    border: 1px solid var(--color-border);
+    border-radius: 8px;
+  }
+
+  .hairline {
+    border-top: 1px solid var(--color-border);
+  }
+
+  .kbd {
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+    padding: 0.1rem 0.4rem;
+    background: var(--color-surface-2);
+    border: 1px solid var(--color-border-strong);
+    border-radius: 4px;
+    color: var(--color-muted);
+  }
+
+  /* Prose styles for docs + blog markdown */
+  .prose-fj {
+    color: var(--color-text);
+    font-size: 1rem;
+    line-height: 1.7;
+    max-width: 72ch;
+  }
+  .prose-fj h1 {
+    font-size: 2rem;
+    line-height: 1.2;
+    font-weight: 700;
+    margin: 0 0 1.5rem;
+    letter-spacing: -0.015em;
+  }
+  .prose-fj h2 {
+    font-size: 1.5rem;
+    font-weight: 650;
+    margin: 2.5rem 0 1rem;
+    padding-top: 1rem;
+    border-top: 1px solid var(--color-border);
+    letter-spacing: -0.01em;
+  }
+  .prose-fj h3 {
+    font-size: 1.175rem;
+    font-weight: 600;
+    margin: 2rem 0 0.75rem;
+  }
+  .prose-fj h4 {
+    font-size: 1rem;
+    font-weight: 600;
+    margin: 1.5rem 0 0.5rem;
+    color: var(--color-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+  .prose-fj p {
+    margin: 0 0 1.1rem;
+  }
+  .prose-fj a {
+    color: var(--color-accent);
+    text-decoration: underline;
+    text-underline-offset: 3px;
+    text-decoration-color: color-mix(in srgb, var(--color-accent) 40%, transparent);
+  }
+  .prose-fj a:hover {
+    text-decoration-color: var(--color-accent);
+  }
+  .prose-fj strong {
+    color: var(--color-text);
+    font-weight: 650;
+  }
+  .prose-fj ul, .prose-fj ol {
+    margin: 0 0 1.1rem 1.25rem;
+  }
+  .prose-fj ul { list-style: disc; }
+  .prose-fj ol { list-style: decimal; }
+  .prose-fj li {
+    margin: 0.35rem 0;
+  }
+  .prose-fj li::marker {
+    color: var(--color-dim);
+  }
+  .prose-fj blockquote {
+    margin: 1.25rem 0;
+    padding: 0.75rem 1rem;
+    border-left: 3px solid var(--color-accent-dim);
+    background: var(--color-surface);
+    color: var(--color-muted);
+    border-radius: 0 6px 6px 0;
+  }
+  .prose-fj blockquote p { margin: 0.25rem 0; }
+  .prose-fj blockquote strong { color: var(--color-accent); }
+  .prose-fj code {
+    background: var(--color-surface);
+    border: 1px solid var(--color-border);
+    padding: 0.1rem 0.35rem;
+    border-radius: 4px;
+    font-size: 0.875em;
+    color: var(--color-accent);
+  }
+  .prose-fj pre {
+    background: var(--color-surface) !important;
+    border: 1px solid var(--color-border);
+    padding: 1rem 1.1rem;
+    border-radius: 8px;
+    overflow-x: auto;
+    margin: 1.25rem 0;
+    font-size: 0.85rem;
+    line-height: 1.55;
+  }
+  .prose-fj pre code {
+    background: transparent;
+    border: 0;
+    padding: 0;
+    color: inherit;
+    font-size: inherit;
+  }
+  .prose-fj hr {
+    margin: 2.5rem 0;
+    border: 0;
+    border-top: 1px solid var(--color-border);
+  }
+  .prose-fj table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 1.25rem 0;
+    font-size: 0.9rem;
+  }
+  .prose-fj th, .prose-fj td {
+    border: 1px solid var(--color-border);
+    padding: 0.5rem 0.75rem;
+    text-align: left;
+  }
+  .prose-fj th {
+    background: var(--color-surface);
+    color: var(--color-muted);
+    font-weight: 600;
+  }
+  .prose-fj :is(h1, h2, h3, h4) a {
+    text-decoration: none;
+    color: inherit;
+  }
+  .prose-fj :is(h1, h2, h3, h4) a:hover::before {
+    content: "#";
+    color: var(--color-accent);
+    position: absolute;
+    margin-left: -1.1em;
+  }
+}
+
+/* Subtle grid background for hero */
+.hero-grid {
+  background-image:
+    linear-gradient(to right, rgba(94, 224, 229, 0.04) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(94, 224, 229, 0.04) 1px, transparent 1px);
+  background-size: 40px 40px;
+  mask-image: radial-gradient(ellipse 80% 60% at 50% 20%, black 40%, transparent 100%);
+}

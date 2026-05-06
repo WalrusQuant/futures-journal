@@ -10,6 +10,8 @@ A desktop trading journal for futures traders that runs real prop-firm rule chec
 
 End-user documentation lives in [`docs/`](docs/README.md). Start with the [Quickstart](docs/getting-started/quickstart.md) if you're new, or [The two ledgers](docs/concepts/the-two-ledgers.md) if you want to understand the most important concept in the app. The rest of this README is developer-facing — architecture, build commands, migrations, schema.
 
+The marketing + docs site lives in [`site/`](site/README.md) (Next.js, static export) and deploys to [walrusquant.github.io/futures-journal](https://walrusquant.github.io/futures-journal/) via GitHub Pages — see `.github/workflows/pages.yml`.
+
 ---
 
 ## Table of contents
