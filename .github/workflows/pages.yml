@@ -33,8 +33,6 @@ jobs:
           cache-dependency-path: site/package-lock.json
       - run: npm ci
       - run: npm run build
-        env:
-          NEXT_PUBLIC_CHECKOUT_URL: ${{ secrets.NEXT_PUBLIC_CHECKOUT_URL }}
       - run: touch out/.nojekyll
       - uses: actions/upload-pages-artifact@v3
         with:

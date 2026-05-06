@@ -28,12 +28,16 @@ const QUESTIONS = [
     a: "For stops, no — the app refuses to save a trade without one, period. For other blockers (daily loss limit, drawdown, contract caps), yes — the form prompts you for an override reason, and the override plus your reason gets recorded on the trade row so you can see your discipline pattern over time. The point isn't frictionless dismissal — it's a speed bump that forces you to articulate why you're ignoring the warning.",
   },
   {
-    q: "Do I get future updates?",
-    a: "Yes. Lifetime updates are included with the one-time payment. Every future release is yours — no subscriptions, no upgrade fees, no tiered features.",
+    q: "Wait — it's actually free?",
+    a: "Yes. MIT-licensed, source on GitHub, signed installers on the Releases page. I built it for myself, decided it was worth sharing, and didn't want a paywall in front of the people who'd actually benefit from it. No upsell tier, no \"pro\" version, no telemetry phoning home.",
   },
   {
-    q: "Can I get a refund?",
-    a: "No. This is a digital product, delivered at checkout. Please read the docs before you buy so you know exactly what you're getting. If the opinions on this page feel wrong for how you trade, this probably isn't the right tool for you — and that's fine.",
+    q: "Do I get future updates?",
+    a: "Yes. Every release is published to the GitHub Releases page — pull the latest installer whenever you want. No subscriptions, no upgrade fees, no tiered features.",
+  },
+  {
+    q: "Can I contribute or report a bug?",
+    a: "Absolutely. The repo is open: file an issue, send a PR, fork it for your own workflow. The codebase is small (vanilla JS frontend, Rust/Tauri shell, SQLite) and the architecture notes in CLAUDE.md and README.md should orient you fast.",
   },
 ];
 

@@ -24,7 +24,7 @@ export function Nav() {
           >
             Blog
           </Link>
-          <CheckoutButton size="sm">Buy</CheckoutButton>
+          <CheckoutButton size="sm">Download</CheckoutButton>
         </nav>
       </div>
     </header>

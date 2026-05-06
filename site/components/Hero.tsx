@@ -1,7 +1,6 @@
 import Link from "next/link";
-import { LaunchBadge } from "./LaunchBadge";
 import { CheckoutButton } from "./CheckoutButton";
-import { PRICING } from "@/lib/config";
+import { REPO_URL } from "@/lib/config";
 
 export function Hero() {
   return (
@@ -9,7 +8,9 @@ export function Hero() {
       <div className="absolute inset-0 hero-grid pointer-events-none" />
       <div className="container-page relative py-24 sm:py-32">
         <div className="max-w-3xl">
-          <LaunchBadge />
+          <span className="inline-flex items-center gap-2 rounded-full border border-[var(--color-accent-dim)] bg-[var(--color-surface)] px-3 py-1 font-mono text-[10px] uppercase tracking-wider text-[var(--color-accent)]">
+            Free · Open source
+          </span>
           <h1 className="mt-5 text-4xl sm:text-5xl lg:text-6xl font-semibold tracking-tight leading-[1.05]">
             A journal that treats{" "}
             <span className="text-[var(--color-accent)]">
@@ -25,12 +26,7 @@ export function Hero() {
           </p>
 
           <div className="mt-9 flex flex-wrap items-center gap-4">
-            <CheckoutButton size="lg">
-              Buy for ${PRICING.launch}
-              <span className="ml-2 font-mono text-xs text-[#04181a]/60 line-through">
-                ${PRICING.regular}
-              </span>
-            </CheckoutButton>
+            <CheckoutButton size="lg">Download for free →</CheckoutButton>
             <Link
               href="/docs"
               className="inline-flex items-center gap-2 text-sm text-[var(--color-muted)] hover:text-[var(--color-text)] transition-colors"
@@ -38,10 +34,19 @@ export function Hero() {
               Read the docs
               <span aria-hidden>→</span>
             </Link>
+            <a
+              href={REPO_URL}
+              target="_blank"
+              rel="noopener"
+              className="inline-flex items-center gap-2 text-sm text-[var(--color-muted)] hover:text-[var(--color-text)] transition-colors"
+            >
+              View on GitHub
+              <span aria-hidden>↗</span>
+            </a>
           </div>
 
           <p className="mt-6 font-mono text-[11px] uppercase tracking-wider text-[var(--color-dim)]">
-            Lifetime updates · No refunds (digital product) · One-time payment
+            MIT-licensed · No account · No telemetry · Local-only
           </p>
         </div>
       </div>

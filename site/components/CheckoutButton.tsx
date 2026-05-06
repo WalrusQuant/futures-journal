@@ -1,15 +1,17 @@
-import { CHECKOUT_URL } from "@/lib/config";
+import { DOWNLOAD_URL } from "@/lib/config";
 
 type Props = {
   children: React.ReactNode;
   size?: "sm" | "md" | "lg";
   variant?: "primary" | "ghost";
+  href?: string;
 };
 
 export function CheckoutButton({
   children,
   size = "md",
   variant = "primary",
+  href = DOWNLOAD_URL,
 }: Props) {
   const sizeClasses = {
     sm: "text-xs px-3 py-1.5",
@@ -24,7 +26,7 @@ export function CheckoutButton({
 
   return (
     <a
-      href={CHECKOUT_URL}
+      href={href}
       rel="noopener"
       className={`inline-flex items-center gap-2 rounded-md transition-all duration-150 ${sizeClasses} ${variantClasses}`}
     >

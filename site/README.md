@@ -22,9 +22,10 @@ Routes:
 - `/` — landing page
 - `/docs` — documentation index (auto-generated from `../docs/**/*.md`)
 - `/docs/<category>/<slug>` — individual doc pages
-- `/blog` — blog index (empty until you add posts)
+- `/blog` — blog index
 - `/blog/<slug>` — individual blog post
-- `/buy` — redirects to the Lemon Squeezy checkout URL
+- `/buy` — legacy URL, redirects to the GitHub Releases page (kept so old
+  links don't 404)
 
 ## Editing content
 
@@ -50,34 +51,15 @@ Your post body in markdown.
 Posts are sorted by `date` descending. No draft flag yet — don't commit
 posts you haven't finished.
 
-## Swapping the Lemon Squeezy checkout URL
+## Where the download links point
 
-The placeholder lives in `lib/config.ts` as `CHECKOUT_URL`. To swap it
-without a code change, set this env var in Vercel:
+`lib/config.ts` exports a single `DOWNLOAD_URL` constant pointing at
+`github.com/WalrusQuant/futures-journal/releases/latest`. Every CTA on
+the site (hero, nav, pricing, footer, /buy redirect) reads from this
+constant — change it in one place if you ever need to.
 
-```
-NEXT_PUBLIC_CHECKOUT_URL=https://adamwickwire.lemonsqueezy.com/buy/your-real-product-id
-```
-
-Every `<CheckoutButton>` on the site (hero, nav, pricing, final CTA) and
-the `/buy` redirect all read from this single constant.
-
-## Changing the pricing
-
-Edit `lib/config.ts`:
-
-```ts
-export const PRICING = {
-  regular: 149,
-  launch: 59,
-  launchSeatsTotal: 100,
-};
-export const LAUNCH_ACTIVE = true;
-```
-
-When the first 100 sell out, flip `LAUNCH_ACTIVE` to `false` — or just bump
-`launch` to `149` and remove the launch badge from `components/Hero.tsx` and
-`components/Pricing.tsx`. There's no automated seat counter.
+The `REPO_URL` constant points at the repo root, used by the "View on
+GitHub" links.
 
 ## Deploying to GitHub Pages
 
@@ -94,9 +76,6 @@ move to a custom domain or rename the repo, update `basePath` and
 One-time setup:
 
 1. Repo Settings → **Pages** → Source: **GitHub Actions**.
-2. Repo Settings → **Secrets and variables → Actions** → add
-   `NEXT_PUBLIC_CHECKOUT_URL` with the real Lemon Squeezy URL when ready.
-   Until then the placeholder in `lib/config.ts` is used.
 
 `public/.nojekyll` is committed so the deployed artifact serves files
 prefixed with `_next/` correctly.
@@ -115,9 +94,7 @@ prefixed with `_next/` correctly.
 ## What's not here
 
 - Email capture / newsletter
-- A seat-counter widget ("37 left at $59")
 - Testimonials
 - Comparison pages vs. other journals
-- Analytics — there's a commented placeholder in `app/layout.tsx` where
-  Plausible / Fathom / Vercel Analytics would go. Deliberately not installed
-  yet.
+- Analytics — there's a commented placeholder in `app/layout.tsx`.
+  Deliberately not installed yet.

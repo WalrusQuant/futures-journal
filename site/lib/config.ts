@@ -8,24 +8,14 @@ export const SITE = {
   name: "Futures Journal",
   url: "https://walrusquant.github.io/futures-journal",
   tagline:
-    "An opinionated, local-first journal I built for my own prop-firm trading — now you can buy it.",
+    "An opinionated, local-first journal I built for my own prop-firm trading — free and open source.",
   author: "Adam Wickwire",
   authorUrl: "https://adamwickwire.com",
 };
 
-export const PRICING = {
-  regular: 149,
-  launch: 59,
-  launchSeatsTotal: 100,
-  currency: "USD",
-};
+// Direct link to the GitHub Releases page where Mac/Windows installers live.
+// Every CTA on the site points at this single constant.
+export const DOWNLOAD_URL =
+  "https://github.com/WalrusQuant/futures-journal/releases/latest";
 
-// Swap this by setting NEXT_PUBLIC_CHECKOUT_URL in Vercel env when the real
-// Lemon Squeezy checkout exists. The /buy route and every CTA on the site
-// read this one constant.
-export const CHECKOUT_URL =
-  process.env.NEXT_PUBLIC_CHECKOUT_URL ??
-  "https://checkout.lemonsqueezy.com/buy/placeholder";
-
-// Set to false if/when the launch seats sell out and the regular price kicks in.
-export const LAUNCH_ACTIVE = true;
+export const REPO_URL = "https://github.com/WalrusQuant/futures-journal";

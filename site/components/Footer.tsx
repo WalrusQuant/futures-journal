@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { SITE } from "@/lib/config";
+import { SITE, DOWNLOAD_URL, REPO_URL } from "@/lib/config";
 
 export function Footer() {
   return (
@@ -17,7 +17,21 @@ export function Footer() {
         <nav className="flex items-center gap-5 text-[var(--color-muted)]">
           <Link href="/docs" className="hover:text-[var(--color-text)]">Docs</Link>
           <Link href="/blog" className="hover:text-[var(--color-text)]">Blog</Link>
-          <Link href="/buy" className="hover:text-[var(--color-accent)]">Buy</Link>
+          <a
+            href={DOWNLOAD_URL}
+            className="hover:text-[var(--color-accent)]"
+            rel="noopener"
+          >
+            Download
+          </a>
+          <a
+            href={REPO_URL}
+            className="hover:text-[var(--color-text)]"
+            target="_blank"
+            rel="noopener"
+          >
+            GitHub ↗
+          </a>
           <a
             href={SITE.authorUrl}
             className="hover:text-[var(--color-text)]"

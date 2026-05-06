@@ -1,15 +1,15 @@
 const ITEMS = [
   {
     title: "Mac and Windows desktop builds",
-    body: "Native desktop app built with Tauri 2. Download after checkout. One binary per platform, no installer tricks.",
+    body: "Native desktop app built with Tauri 2. Direct download from GitHub Releases. One binary per platform, no installer tricks.",
   },
   {
     title: "The full knowledge base",
     body: "Getting started, concepts, guides, and FAQ — the same knowledge base mirrored on this site, shipped with the app.",
   },
   {
-    title: "Lifetime updates",
-    body: "Every future release is yours. One-time payment. No subscriptions, no re-purchases, no tier-gated features.",
+    title: "MIT-licensed source",
+    body: "The whole repo is on GitHub. Read it, fork it, audit it, ship a patch. The license file in the repo is the canonical word.",
   },
   {
     title: "Your data on your disk",

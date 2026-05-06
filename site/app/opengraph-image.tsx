@@ -71,7 +71,7 @@ export default async function OpengraphImage() {
         >
           <div style={{ display: "flex" }}>walrusquant.github.io/futures-journal</div>
           <div style={{ display: "flex", color: "#5ee0e5" }}>
-            $59 · First 100 buyers
+            Free · Open source
           </div>
         </div>
       </div>
